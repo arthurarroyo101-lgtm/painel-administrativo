@@ -1,0 +1,3858 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AdminOS — Painel Administrativo</title>
+
+  <!-- React 18 -->
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+  <!-- Firebase SDK 10 (compat — expõe firebase.* globalmente sem build step) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-analytics-compat.js"></script>
+
+  <!-- Fonte -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0A0C10; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0F1117; }
+    ::-webkit-scrollbar-thumb { background: #1E2535; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #F59E0B44; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script>
+function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
+// ─── GLOBALS DE CDN ────────────────────────────────────────────────────────
+const {
+  useState,
+  useEffect,
+  useMemo,
+  createContext,
+  useContext
+} = React;
+
+// ─── FIREBASE CONFIG ─────────────────────────────────────────────────────────
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBldyERic8FOr9gZTxhRncL0oChVP_R7w8",
+  authDomain:        "painel-administrativo-81681.firebaseapp.com",
+  projectId:         "painel-administrativo-81681",
+  storageBucket:     "painel-administrativo-81681.firebasestorage.app",
+  messagingSenderId: "403074281243",
+  appId:             "1:403074281243:web:b128c0118b3a4c9480adbe",
+  measurementId:     "G-V7Q2Y6FXX0",
+};
+
+/** URL base da API NestJS para chamadas protegidas */
+const API_URL = 'https://api.painel.meusapps.com/api';
+
+// ─── FIREBASE INIT ───────────────────────────────────────────────────────────
+const firebaseApp  = firebase.initializeApp(FIREBASE_CONFIG);
+const firebaseAuth = firebase.auth.getAuth(firebaseApp);
+const firebaseDb   = firebase.firestore.getFirestore(firebaseApp);
+
+/**
+ * Analytics — disponível apenas no browser (requer measurementId).
+ * O SDK compat verifica automaticamente se o ambiente suporta Analytics
+ * antes de inicializar, evitando erros em ambientes SSR ou sem cookies.
+ */
+const firebaseAnalytics = firebase.analytics.getAnalytics(firebaseApp);
+
+// Provedores de autenticação
+const githubProvider = new firebase.auth.GithubAuthProvider();
+const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+githubProvider.addScope('user:email');
+
+/**
+ * Retorna o ID Token atual (Firebase JWT).
+ * Sempre busca um token fresco — o SDK renova automaticamente se expirado.
+ * Enviado como Bearer no header Authorization para o backend NestJS.
+ */
+async function getIdToken() {
+  const user = firebaseAuth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
+}
+
+/**
+ * Faz uma chamada autenticada à API NestJS.
+ * Injeta automaticamente o Bearer token no header Authorization.
+ */
+async function apiFetch(path, options = {}) {
+  const token = await getIdToken();
+  return fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      'Content-Type':  'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+}
+
+// ─── THEME TOKENS ──────────────────────────────────────────────────────────
+const T = {
+  bg: "#0A0C10",
+  surface: "#0F1117",
+  surface2: "#161B27",
+  border: "#1E2535",
+  amber: "#F59E0B",
+  amberDim: "#D97706",
+  emerald: "#10B981",
+  rose: "#F43F5E",
+  sky: "#38BDF8",
+  violet: "#8B5CF6",
+  orange: "#FB923C",
+  pink: "#F472B6",
+  txtPri: "#F0F4F8",
+  txtSec: "#8899AA"
+};
+
+// ─── MOCK DATA ─────────────────────────────────────────────────────────────
+const APPS = [{
+  id: "1",
+  name: "Portal Cliente",
+  type: "web",
+  status: "active",
+  version: "2.4.1",
+  baseUrl: "https://portal.empresa.com",
+  description: "Portal principal dos clientes",
+  updatedAt: "2026-03-08"
+}, {
+  id: "2",
+  name: "App Mobile",
+  type: "mobile",
+  status: "active",
+  version: "1.9.0",
+  baseUrl: "https://app.empresa.com",
+  description: "Aplicativo iOS e Android",
+  updatedAt: "2026-03-07"
+}, {
+  id: "3",
+  name: "API Gateway",
+  type: "api",
+  status: "maintenance",
+  version: "3.1.2",
+  baseUrl: "https://api.empresa.com",
+  description: "Gateway central de APIs",
+  updatedAt: "2026-03-06"
+}, {
+  id: "4",
+  name: "Landing Promo",
+  type: "landing_page",
+  status: "active",
+  version: "1.0.5",
+  baseUrl: "https://promo.empresa.com",
+  description: "Campanha Q1 2026",
+  updatedAt: "2026-03-05"
+}, {
+  id: "5",
+  name: "Dashboard BI",
+  type: "dashboard",
+  status: "inactive",
+  version: "2.0.0",
+  baseUrl: "https://bi.empresa.com",
+  description: "Relatórios executivos",
+  updatedAt: "2026-03-04"
+}, {
+  id: "6",
+  name: "Webhook Service",
+  type: "api",
+  status: "active",
+  version: "1.3.0",
+  baseUrl: "https://hooks.empresa.com",
+  description: "Serviço de webhooks",
+  updatedAt: "2026-03-03"
+}, {
+  id: "7",
+  name: "Blog Corporativo",
+  type: "web",
+  status: "draft",
+  version: "0.9.1",
+  baseUrl: "https://blog.empresa.com",
+  description: "Blog institucional",
+  updatedAt: "2026-03-02"
+}, {
+  id: "8",
+  name: "Admin Legacy",
+  type: "dashboard",
+  status: "inactive",
+  version: "1.0.0",
+  baseUrl: "https://old-admin.empresa.com",
+  description: "Sistema legado (depreciando)",
+  updatedAt: "2026-03-01"
+}];
+const APP_USERS_MAP = {
+  "1": [{
+    id: "u1",
+    name: "Ana Souza",
+    email: "ana@empresa.com",
+    role: "admin",
+    lastAccess: "2026-03-10T09:00:00Z"
+  }, {
+    id: "u2",
+    name: "Bruno Lima",
+    email: "bruno@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-10T08:30:00Z"
+  }, {
+    id: "u3",
+    name: "Carla Neves",
+    email: "carla@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-09T17:00:00Z"
+  }, {
+    id: "u4",
+    name: "Diego Torres",
+    email: "diego@empresa.com",
+    role: "viewer",
+    lastAccess: "2026-03-08T14:00:00Z"
+  }],
+  "2": [{
+    id: "u1",
+    name: "Ana Souza",
+    email: "ana@empresa.com",
+    role: "admin",
+    lastAccess: "2026-03-10T09:00:00Z"
+  }, {
+    id: "u3",
+    name: "Carla Neves",
+    email: "carla@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-09T17:00:00Z"
+  }],
+  "3": [{
+    id: "u1",
+    name: "Ana Souza",
+    email: "ana@empresa.com",
+    role: "admin",
+    lastAccess: "2026-03-10T09:00:00Z"
+  }, {
+    id: "u2",
+    name: "Bruno Lima",
+    email: "bruno@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-10T08:30:00Z"
+  }],
+  "4": [{
+    id: "u2",
+    name: "Bruno Lima",
+    email: "bruno@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-10T08:30:00Z"
+  }, {
+    id: "u4",
+    name: "Diego Torres",
+    email: "diego@empresa.com",
+    role: "viewer",
+    lastAccess: "2026-03-08T14:00:00Z"
+  }],
+  "5": [],
+  "6": [{
+    id: "u1",
+    name: "Ana Souza",
+    email: "ana@empresa.com",
+    role: "admin",
+    lastAccess: "2026-03-10T09:00:00Z"
+  }],
+  "7": [{
+    id: "u3",
+    name: "Carla Neves",
+    email: "carla@empresa.com",
+    role: "editor",
+    lastAccess: "2026-03-09T17:00:00Z"
+  }],
+  "8": []
+};
+const APP_VERSIONS_MAP = {
+  "1": [{
+    version: "2.4.1",
+    date: "2026-03-08",
+    author: "Bruno Lima",
+    notes: "Correção de bug no login OAuth"
+  }, {
+    version: "2.4.0",
+    date: "2026-02-20",
+    author: "Ana Souza",
+    notes: "Nova dashboard de métricas"
+  }, {
+    version: "2.3.5",
+    date: "2026-01-15",
+    author: "Carla Neves",
+    notes: "Atualização de dependências críticas"
+  }, {
+    version: "2.3.0",
+    date: "2025-12-10",
+    author: "Bruno Lima",
+    notes: "Integração com API v3"
+  }],
+  "2": [{
+    version: "1.9.0",
+    date: "2026-03-07",
+    author: "Ana Souza",
+    notes: "Suporte a notificações push"
+  }, {
+    version: "1.8.2",
+    date: "2026-02-01",
+    author: "Bruno Lima",
+    notes: "Fix crash em iOS 17"
+  }, {
+    version: "1.8.0",
+    date: "2026-01-10",
+    author: "Ana Souza",
+    notes: "Redesign da tela de perfil"
+  }],
+  "3": [{
+    version: "3.1.2",
+    date: "2026-03-06",
+    author: "Ana Souza",
+    notes: "Patch de segurança urgente"
+  }, {
+    version: "3.1.0",
+    date: "2026-02-12",
+    author: "Bruno Lima",
+    notes: "Rate limiting por IP"
+  }, {
+    version: "3.0.0",
+    date: "2026-01-01",
+    author: "Ana Souza",
+    notes: "Migração para arquitetura v3"
+  }]
+};
+const getVersions = id => APP_VERSIONS_MAP[id] ?? [];
+const APP_ENV_MAP = {
+  "1": [{
+    key: "NEXT_PUBLIC_API_URL",
+    value: "https://api.empresa.com",
+    secret: false
+  }, {
+    key: "DATABASE_URL",
+    value: "postgres://db:5432/portal",
+    secret: true
+  }, {
+    key: "JWT_SECRET",
+    value: "super-secret-jwt-key-here",
+    secret: true
+  }, {
+    key: "GOOGLE_CLIENT_ID",
+    value: "812346789-xxx.apps.google.com",
+    secret: false
+  }, {
+    key: "FEATURE_DARK_UI",
+    value: "true",
+    secret: false
+  }],
+  "2": [{
+    key: "API_BASE_URL",
+    value: "https://api.empresa.com",
+    secret: false
+  }, {
+    key: "PUSH_SECRET",
+    value: "push-secret-key",
+    secret: true
+  }, {
+    key: "SENTRY_DSN",
+    value: "https://sentry.io/xxx",
+    secret: false
+  }],
+  "3": [{
+    key: "PORT",
+    value: "8080",
+    secret: false
+  }, {
+    key: "DB_HOST",
+    value: "db.empresa.internal",
+    secret: false
+  }, {
+    key: "REDIS_URL",
+    value: "redis://cache:6379",
+    secret: false
+  }, {
+    key: "HMAC_SECRET",
+    value: "hmac-secret-key",
+    secret: true
+  }, {
+    key: "LOG_LEVEL",
+    value: "info",
+    secret: false
+  }, {
+    key: "ALLOWED_CORS",
+    value: "https://empresa.com",
+    secret: false
+  }]
+};
+const getEnvVars = id => APP_ENV_MAP[id] ?? [];
+const APP_LOGS_MAP = {
+  "1": [{
+    time: "2026-03-10T14:22:00Z",
+    level: "info",
+    msg: "Deploy v2.4.1 concluído com sucesso"
+  }, {
+    time: "2026-03-10T12:01:00Z",
+    level: "warn",
+    msg: "Alta latência no endpoint /auth/login (820ms)"
+  }, {
+    time: "2026-03-10T09:15:00Z",
+    level: "info",
+    msg: "Login: ana@empresa.com"
+  }, {
+    time: "2026-03-09T18:30:00Z",
+    level: "error",
+    msg: "Timeout na conexão com banco de dados"
+  }, {
+    time: "2026-03-09T15:00:00Z",
+    level: "info",
+    msg: "Configuração de CORS atualizada"
+  }, {
+    time: "2026-03-08T11:45:00Z",
+    level: "warn",
+    msg: "Rate limit atingido por IP 192.168.1.5"
+  }],
+  "2": [{
+    time: "2026-03-10T13:00:00Z",
+    level: "info",
+    msg: "Build iOS v1.9.0 publicado na App Store"
+  }, {
+    time: "2026-03-10T10:30:00Z",
+    level: "warn",
+    msg: "Token push expirado em 12 dispositivos"
+  }, {
+    time: "2026-03-09T09:00:00Z",
+    level: "info",
+    msg: "Deploy Android v1.9.0 concluído"
+  }],
+  "3": [{
+    time: "2026-03-10T12:30:00Z",
+    level: "info",
+    msg: "Health check OK — uptime 99.8%"
+  }, {
+    time: "2026-03-10T11:00:00Z",
+    level: "error",
+    msg: "Falha no circuit breaker — serviço Users"
+  }, {
+    time: "2026-03-10T08:00:00Z",
+    level: "info",
+    msg: "Certificado SSL renovado automaticamente"
+  }],
+  "4": [{
+    time: "2026-03-10T10:00:00Z",
+    level: "info",
+    msg: "Campanha Q1 ativada — 1.2k visitas hoje"
+  }, {
+    time: "2026-03-09T16:00:00Z",
+    level: "info",
+    msg: "A/B test iniciado no hero banner"
+  }]
+};
+const getLogs = id => APP_LOGS_MAP[id] ?? [];
+const DOMAINS = [{
+  id: "1",
+  name: "empresa.com",
+  status: "active",
+  ssl: true,
+  sslExp: "2027-01-15",
+  apps: 4
+}, {
+  id: "2",
+  name: "portal.empresa.com",
+  status: "active",
+  ssl: true,
+  sslExp: "2026-11-20",
+  apps: 1
+}, {
+  id: "3",
+  name: "api.empresa.com",
+  status: "active",
+  ssl: true,
+  sslExp: "2026-08-03",
+  apps: 2
+}, {
+  id: "4",
+  name: "blog.empresa.com",
+  status: "pending",
+  ssl: false,
+  sslExp: null,
+  apps: 1
+}, {
+  id: "5",
+  name: "old-admin.empresa.com",
+  status: "error",
+  ssl: false,
+  sslExp: null,
+  apps: 1
+}];
+const INTEGRATIONS = [{
+  id: "1",
+  name: "Slack #deploys",
+  type: "slack",
+  status: "connected",
+  lastSync: "2026-03-10T14:22:00Z"
+}, {
+  id: "2",
+  name: "GitHub Org",
+  type: "github",
+  status: "connected",
+  lastSync: "2026-03-10T13:00:00Z"
+}, {
+  id: "3",
+  name: "Datadog APM",
+  type: "datadog",
+  status: "connected",
+  lastSync: "2026-03-10T12:30:00Z"
+}, {
+  id: "4",
+  name: "PagerDuty Alerts",
+  type: "pagerduty",
+  status: "disconnected",
+  lastSync: "2026-02-20T09:00:00Z"
+}, {
+  id: "5",
+  name: "GitLab CI",
+  type: "gitlab",
+  status: "error",
+  lastSync: "2026-03-08T10:00:00Z"
+}, {
+  id: "6",
+  name: "Email Alerts",
+  type: "email",
+  status: "connected",
+  lastSync: "2026-03-10T11:00:00Z"
+}];
+const TEAM = [{
+  id: "1",
+  name: "Ana Souza",
+  email: "ana@empresa.com",
+  role: "admin",
+  provider: "google",
+  active: true,
+  lastLogin: "2026-03-10T09:00:00Z"
+}, {
+  id: "2",
+  name: "Bruno Lima",
+  email: "bruno@empresa.com",
+  role: "editor",
+  provider: "github",
+  active: true,
+  lastLogin: "2026-03-10T08:30:00Z"
+}, {
+  id: "3",
+  name: "Carla Neves",
+  email: "carla@empresa.com",
+  role: "editor",
+  provider: "google",
+  active: true,
+  lastLogin: "2026-03-09T17:00:00Z"
+}, {
+  id: "4",
+  name: "Diego Torres",
+  email: "diego@empresa.com",
+  role: "viewer",
+  provider: "microsoft",
+  active: true,
+  lastLogin: "2026-03-08T14:00:00Z"
+}, {
+  id: "5",
+  name: "Eva Martins",
+  email: "eva@empresa.com",
+  role: "viewer",
+  provider: "local",
+  active: false,
+  lastLogin: "2026-01-15T10:00:00Z"
+}];
+const CHART_DATA = Array.from({
+  length: 24
+}, (_, i) => ({
+  h: `${String(i).padStart(2, "0")}h`,
+  req: Math.floor(80 + Math.random() * 280),
+  err: Math.floor(Math.random() * 12)
+}));
+const BAR_DATA = [{
+  name: "Ativos",
+  value: 4,
+  color: T.emerald
+}, {
+  name: "Inativos",
+  value: 2,
+  color: T.rose
+}, {
+  name: "Manutenção",
+  value: 1,
+  color: T.amber
+}, {
+  name: "Rascunho",
+  value: 1,
+  color: T.violet
+}];
+
+// ─── NAV CONTEXT ───────────────────────────────────────────────────────────
+const NavCtx = createContext({
+  page:   "dashboard",
+  go:     _p => {},
+  user:   null,      // payload decodificado do JWT: { sub, name, email, githubUsername, role }
+  logout: ()  => {},
+});
+
+// ─── CONFIG MAPS ───────────────────────────────────────────────────────────
+const STATUS_CFG = {
+  active: {
+    label: "Ativo",
+    color: T.emerald
+  },
+  inactive: {
+    label: "Inativo",
+    color: T.rose
+  },
+  maintenance: {
+    label: "Manutenção",
+    color: T.amber
+  },
+  draft: {
+    label: "Rascunho",
+    color: T.violet
+  },
+  connected: {
+    label: "Conectado",
+    color: T.emerald
+  },
+  disconnected: {
+    label: "Desconectado",
+    color: T.txtSec
+  },
+  error: {
+    label: "Erro",
+    color: T.rose
+  },
+  pending: {
+    label: "Pendente",
+    color: T.amber
+  }
+};
+const TYPE_CFG = {
+  web: {
+    label: "Web",
+    color: T.sky
+  },
+  mobile: {
+    label: "Mobile",
+    color: T.violet
+  },
+  api: {
+    label: "API",
+    color: T.emerald
+  },
+  landing_page: {
+    label: "Landing",
+    color: T.orange
+  },
+  dashboard: {
+    label: "Dashboard",
+    color: T.pink
+  }
+};
+const ROLE_CFG = {
+  admin: {
+    label: "Admin",
+    color: T.amber
+  },
+  editor: {
+    label: "Editor",
+    color: T.sky
+  },
+  viewer: {
+    label: "Viewer",
+    color: T.emerald
+  }
+};
+const INT_EMOJI = {
+  slack: "💬",
+  github: "🐙",
+  gitlab: "🦊",
+  datadog: "📊",
+  pagerduty: "🚨",
+  email: "📧",
+  webhook: "🔗"
+};
+
+// ─── BASE CARD STYLE ───────────────────────────────────────────────────────
+const card = {
+  background: T.surface,
+  border: `1px solid ${T.border}`,
+  borderRadius: 10,
+  padding: 20
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SHARED UI ATOMS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function Chip({
+  cfg,
+  size = "sm"
+}) {
+  const pad = size === "sm" ? "2px 8px" : "3px 10px";
+  const fs = size === "sm" ? 10 : 11;
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      padding: pad,
+      borderRadius: 4,
+      fontSize: fs,
+      fontWeight: 700,
+      fontFamily: "monospace",
+      letterSpacing: "0.04em",
+      color: cfg.color,
+      background: cfg.color + "20",
+      border: `1px solid ${cfg.color}40`
+    }
+  }, cfg.label);
+}
+function Btn({
+  children,
+  onClick,
+  variant = "primary",
+  size = "sm",
+  disabled
+}) {
+  const base = {
+    border: "none",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontWeight: 600,
+    borderRadius: 7,
+    fontFamily: "inherit",
+    transition: "all .15s",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    opacity: disabled ? 0.5 : 1
+  };
+  const sizes = {
+    sm: {
+      padding: "6px 14px",
+      fontSize: 12
+    },
+    md: {
+      padding: "9px 18px",
+      fontSize: 13
+    }
+  };
+  const vars = {
+    primary: {
+      background: `linear-gradient(135deg,${T.amber},${T.amberDim})`,
+      color: "#000"
+    },
+    outline: {
+      background: "transparent",
+      color: T.txtSec,
+      border: `1px solid ${T.border}`
+    },
+    danger: {
+      background: `${T.rose}18`,
+      color: T.rose,
+      border: `1px solid ${T.rose}40`
+    },
+    ghost: {
+      background: "transparent",
+      color: T.txtSec
+    }
+  };
+  return /*#__PURE__*/React.createElement("button", {
+    onClick: disabled ? undefined : onClick,
+    style: {
+      ...base,
+      ...sizes[size],
+      ...vars[variant]
+    }
+  }, children);
+}
+function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  footer
+}) {
+  if (!open) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    onClick: e => e.target === e.currentTarget && onClose(),
+    style: {
+      position: "fixed",
+      inset: 0,
+      background: "rgba(0,0,0,0.72)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      zIndex: 1000,
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: T.surface,
+      border: `1px solid ${T.border}`,
+      borderRadius: 12,
+      width: "100%",
+      maxWidth: 520,
+      maxHeight: "90vh",
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+      boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+      fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "18px 22px 14px",
+      borderBottom: `1px solid ${T.border}`,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15,
+      color: T.txtPri
+    }
+  }, title), /*#__PURE__*/React.createElement("button", {
+    onClick: onClose,
+    style: {
+      background: "none",
+      border: "none",
+      color: T.txtSec,
+      cursor: "pointer",
+      fontSize: 18,
+      lineHeight: 1
+    }
+  }, "\u2715")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px 22px",
+      overflowY: "auto",
+      flex: 1
+    }
+  }, children), footer && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 22px",
+      borderTop: `1px solid ${T.border}`,
+      display: "flex",
+      justifyContent: "flex-end",
+      gap: 8
+    }
+  }, footer)));
+}
+function Input({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+  mono
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, label && /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontFamily: "monospace",
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      marginBottom: 5
+    }
+  }, label), /*#__PURE__*/React.createElement("input", {
+    value: value,
+    onChange: e => onChange(e.target.value),
+    type: type,
+    placeholder: placeholder,
+    style: {
+      width: "100%",
+      background: T.surface2,
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "9px 12px",
+      color: T.txtPri,
+      fontSize: 13,
+      fontFamily: mono ? "monospace" : "inherit",
+      outline: "none",
+      boxSizing: "border-box"
+    },
+    onFocus: e => e.target.style.borderColor = T.amber,
+    onBlur: e => e.target.style.borderColor = T.border
+  }));
+}
+function Select2({
+  label,
+  value,
+  onChange,
+  options
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 14
+    }
+  }, label && /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "block",
+      fontSize: 11,
+      fontFamily: "monospace",
+      letterSpacing: "0.08em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      marginBottom: 5
+    }
+  }, label), /*#__PURE__*/React.createElement("select", {
+    value: value,
+    onChange: e => onChange(e.target.value),
+    style: {
+      width: "100%",
+      background: T.surface2,
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "9px 12px",
+      color: T.txtPri,
+      fontSize: 13,
+      outline: "none",
+      cursor: "pointer",
+      boxSizing: "border-box"
+    }
+  }, options.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o.value,
+    value: o.value
+  }, o.label))));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SVG CHARTS — sem dependências externas
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Gráfico de área SVG puro — substitui AreaChart do Recharts */
+function SvgAreaChart({
+  data
+}) {
+  const [tip, setTip] = useState(null);
+  const W = 600,
+    H = 170,
+    pL = 34,
+    pR = 8,
+    pT = 8,
+    pB = 22;
+  const pw = W - pL - pR,
+    ph = H - pT - pB;
+  const maxReq = Math.max(...data.map(d => d.req));
+  const maxErr = Math.max(...data.map(d => d.err), 1);
+  const maxY = Math.ceil(maxReq / 100) * 100 || 400;
+  const xOf = i => pL + i / (data.length - 1) * pw;
+  const yReq = v => pT + ph - v / maxY * ph;
+  const yErr = v => pT + ph - v / maxErr * ph;
+  const line = fn => data.map((d, i) => `${i === 0 ? 'M' : 'L'}${xOf(i).toFixed(1)},${fn(d).toFixed(1)}`).join(' ');
+  const area = fn => line(fn) + ` L${xOf(data.length - 1).toFixed(1)},${(pT + ph).toFixed(1)} L${pL},${(pT + ph).toFixed(1)} Z`;
+  const yTicks = [0, .25, .5, .75, 1].map(f => Math.round(maxY * f));
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    style: {
+      width: "100%",
+      height: 190,
+      display: "block",
+      overflow: "visible"
+    }
+  }, /*#__PURE__*/React.createElement("defs", null, /*#__PURE__*/React.createElement("linearGradient", {
+    id: "gA",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "5%",
+    stopColor: T.amber,
+    stopOpacity: 0.28
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "95%",
+    stopColor: T.amber,
+    stopOpacity: 0
+  })), /*#__PURE__*/React.createElement("linearGradient", {
+    id: "gE",
+    x1: "0",
+    y1: "0",
+    x2: "0",
+    y2: "1"
+  }, /*#__PURE__*/React.createElement("stop", {
+    offset: "5%",
+    stopColor: T.rose,
+    stopOpacity: 0.22
+  }), /*#__PURE__*/React.createElement("stop", {
+    offset: "95%",
+    stopColor: T.rose,
+    stopOpacity: 0
+  }))), yTicks.map((v, i) => /*#__PURE__*/React.createElement("g", {
+    key: i
+  }, /*#__PURE__*/React.createElement("line", {
+    x1: pL,
+    x2: W - pR,
+    y1: yReq(v),
+    y2: yReq(v),
+    stroke: T.border,
+    strokeDasharray: "3 3",
+    strokeWidth: 0.8
+  }), /*#__PURE__*/React.createElement("text", {
+    x: pL - 4,
+    y: yReq(v) + 3,
+    textAnchor: "end",
+    fontSize: 8,
+    fill: T.txtSec,
+    fontFamily: "monospace"
+  }, v))), data.filter((_, i) => i % 3 === 0).map((d, i) => /*#__PURE__*/React.createElement("text", {
+    key: i,
+    x: xOf(data.indexOf(d)),
+    y: H - 4,
+    textAnchor: "middle",
+    fontSize: 8,
+    fill: T.txtSec,
+    fontFamily: "monospace"
+  }, d.h)), /*#__PURE__*/React.createElement("path", {
+    d: area(d => yReq(d.req)),
+    fill: "url(#gA)"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: area(d => yErr(d.err)),
+    fill: "url(#gE)"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: line(d => yReq(d.req)),
+    fill: "none",
+    stroke: T.amber,
+    strokeWidth: 2
+  }), /*#__PURE__*/React.createElement("path", {
+    d: line(d => yErr(d.err)),
+    fill: "none",
+    stroke: T.rose,
+    strokeWidth: 1.5
+  }), data.map((d, i) => /*#__PURE__*/React.createElement("rect", {
+    key: i,
+    x: xOf(i) - pw / (data.length * 2),
+    y: pT,
+    width: pw / data.length,
+    height: ph,
+    fill: "transparent",
+    style: {
+      cursor: "crosshair"
+    },
+    onMouseEnter: () => setTip({
+      d,
+      x: xOf(i)
+    }),
+    onMouseLeave: () => setTip(null)
+  })), /*#__PURE__*/React.createElement("circle", {
+    cx: pL + 8,
+    cy: H - 36,
+    r: 3,
+    fill: T.amber
+  }), /*#__PURE__*/React.createElement("text", {
+    x: pL + 14,
+    y: H - 33,
+    fontSize: 8,
+    fill: T.txtSec,
+    fontFamily: "monospace"
+  }, "Req/min"), /*#__PURE__*/React.createElement("circle", {
+    cx: pL + 62,
+    cy: H - 36,
+    r: 3,
+    fill: T.rose
+  }), /*#__PURE__*/React.createElement("text", {
+    x: pL + 68,
+    y: H - 33,
+    fontSize: 8,
+    fill: T.txtSec,
+    fontFamily: "monospace"
+  }, "Erros"), tip && (() => {
+    const tx = Math.min(tip.x + 8, W - 108);
+    return /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("line", {
+      x1: tip.x,
+      x2: tip.x,
+      y1: pT,
+      y2: pT + ph,
+      stroke: T.border,
+      strokeWidth: 1
+    }), /*#__PURE__*/React.createElement("rect", {
+      x: tx,
+      y: pT + 4,
+      width: 98,
+      height: 44,
+      rx: 4,
+      fill: T.surface2,
+      stroke: T.border,
+      strokeWidth: 1
+    }), /*#__PURE__*/React.createElement("text", {
+      x: tx + 7,
+      y: pT + 16,
+      fontSize: 9,
+      fill: T.txtSec,
+      fontFamily: "monospace"
+    }, tip.d.h), /*#__PURE__*/React.createElement("text", {
+      x: tx + 7,
+      y: pT + 28,
+      fontSize: 9,
+      fill: T.amber,
+      fontFamily: "monospace"
+    }, "Req: ", tip.d.req), /*#__PURE__*/React.createElement("text", {
+      x: tx + 7,
+      y: pT + 40,
+      fontSize: 9,
+      fill: T.rose,
+      fontFamily: "monospace"
+    }, "Erros: ", tip.d.err));
+  })()));
+}
+
+/** Gráfico de barras SVG puro — substitui BarChart do Recharts */
+function SvgBarChart({
+  data
+}) {
+  const [tip, setTip] = useState(null);
+  const W = 300,
+    H = 170,
+    pL = 28,
+    pR = 8,
+    pT = 16,
+    pB = 24;
+  const pw = W - pL - pR,
+    ph = H - pT - pB;
+  const maxV = Math.max(...data.map(d => d.value), 1);
+  const bw = pw / data.length;
+  const gap = bw * 0.28;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 ${W} ${H}`,
+    style: {
+      width: "100%",
+      height: 190,
+      display: "block"
+    }
+  }, [0, .5, 1].map((f, i) => {
+    const v = maxV * f,
+      y = pT + ph - v / maxV * ph;
+    return /*#__PURE__*/React.createElement("g", {
+      key: i
+    }, /*#__PURE__*/React.createElement("line", {
+      x1: pL,
+      x2: W - pR,
+      y1: y,
+      y2: y,
+      stroke: T.border,
+      strokeDasharray: "3 3",
+      strokeWidth: 0.8
+    }), /*#__PURE__*/React.createElement("text", {
+      x: pL - 4,
+      y: y + 3,
+      textAnchor: "end",
+      fontSize: 8,
+      fill: T.txtSec,
+      fontFamily: "monospace"
+    }, Math.round(v)));
+  }), data.map((d, i) => {
+    const bh = d.value / maxV * ph;
+    const x = pL + i * bw + gap / 2;
+    const y = pT + ph - bh;
+    const w = bw - gap;
+    const hl = tip?.i === i;
+    return /*#__PURE__*/React.createElement("g", {
+      key: i,
+      onMouseEnter: () => setTip({
+        i,
+        d,
+        x: x + w / 2
+      }),
+      onMouseLeave: () => setTip(null),
+      style: {
+        cursor: "pointer"
+      }
+    }, /*#__PURE__*/React.createElement("rect", {
+      x: x,
+      y: y,
+      width: w,
+      height: bh,
+      fill: d.color,
+      rx: 3,
+      opacity: hl ? 1 : 0.8
+    }), /*#__PURE__*/React.createElement("text", {
+      x: x + w / 2,
+      y: y - 4,
+      textAnchor: "middle",
+      fontSize: 9,
+      fill: d.color,
+      fontFamily: "monospace",
+      fontWeight: "700"
+    }, d.value), /*#__PURE__*/React.createElement("text", {
+      x: x + w / 2,
+      y: H - 6,
+      textAnchor: "middle",
+      fontSize: 8,
+      fill: T.txtSec,
+      fontFamily: "monospace"
+    }, d.name));
+  }), tip && /*#__PURE__*/React.createElement("g", null, /*#__PURE__*/React.createElement("rect", {
+    x: Math.max(4, tip.x - 42),
+    y: 4,
+    width: 84,
+    height: 28,
+    rx: 4,
+    fill: T.surface2,
+    stroke: T.border,
+    strokeWidth: 1
+  }), /*#__PURE__*/React.createElement("text", {
+    x: tip.x,
+    y: 16,
+    textAnchor: "middle",
+    fontSize: 9,
+    fill: T.txtSec,
+    fontFamily: "monospace"
+  }, tip.d.name), /*#__PURE__*/React.createElement("text", {
+    x: tip.x,
+    y: 28,
+    textAnchor: "middle",
+    fontSize: 10,
+    fill: tip.d.color,
+    fontFamily: "monospace",
+    fontWeight: "700"
+  }, tip.d.value))));
+}
+function Table({
+  cols,
+  rows,
+  emptyMsg = "Nenhum item encontrado"
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      overflowX: "auto"
+    }
+  }, /*#__PURE__*/React.createElement("table", {
+    style: {
+      width: "100%",
+      borderCollapse: "collapse",
+      fontSize: 13
+    }
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", {
+    style: {
+      background: T.surface2
+    }
+  }, cols.map((c, i) => /*#__PURE__*/React.createElement("th", {
+    key: i,
+    style: {
+      padding: "10px 14px",
+      textAlign: c.right ? "right" : "left",
+      fontSize: 10,
+      fontFamily: "monospace",
+      fontWeight: 600,
+      letterSpacing: "0.1em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      borderBottom: `1px solid ${T.border}`,
+      whiteSpace: "nowrap"
+    }
+  }, c.label)))), /*#__PURE__*/React.createElement("tbody", null, rows.length === 0 ? /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: cols.length,
+    style: {
+      padding: 48,
+      textAlign: "center",
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, emptyMsg)) : rows.map((row, ri) => /*#__PURE__*/React.createElement("tr", {
+    key: ri,
+    style: {
+      borderBottom: `1px solid ${T.border}20`,
+      transition: "background .1s"
+    },
+    onMouseEnter: e => e.currentTarget.style.background = T.txtPri + "05",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, cols.map((c, ci) => /*#__PURE__*/React.createElement("td", {
+    key: ci,
+    style: {
+      padding: "11px 14px",
+      textAlign: c.right ? "right" : "left",
+      color: T.txtPri,
+      verticalAlign: "middle"
+    }
+  }, c.render ? c.render(row) : row[c.key])))))));
+}
+function StatCard({
+  label,
+  value,
+  icon,
+  color,
+  sub
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      position: "relative",
+      overflow: "hidden",
+      flex: 1,
+      minWidth: 130
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      width: 3,
+      background: `linear-gradient(to bottom, ${color}, ${color}40)`,
+      borderRadius: "10px 0 0 10px"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color: T.txtSec
+    }
+  }, label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      background: color + "18",
+      color,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 16
+    }
+  }, icon)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 28,
+      fontWeight: 800,
+      color: T.txtPri,
+      letterSpacing: "-0.03em",
+      lineHeight: 1
+    }
+  }, value ?? "—"), sub && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.txtSec,
+      marginTop: 4,
+      fontFamily: "monospace"
+    }
+  }, sub), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      right: -16,
+      bottom: -16,
+      width: 64,
+      height: 64,
+      borderRadius: "50%",
+      background: color + "08"
+    }
+  }));
+}
+function PageHeader({
+  title,
+  subtitle,
+  action
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 28,
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+      flexWrap: "wrap",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontWeight: 800,
+      color: T.txtPri,
+      letterSpacing: "-0.02em",
+      lineHeight: 1.1
+    }
+  }, title), subtitle && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: T.txtSec,
+      marginTop: 5
+    }
+  }, subtitle)), action);
+}
+
+// ─── SIDEBAR ───────────────────────────────────────────────────────────────
+const NAV_ITEMS = [{
+  id: "dashboard",
+  label: "Dashboard",
+  icon: "⬛"
+}, {
+  id: "apps",
+  label: "Apps",
+  icon: "📦"
+}, {
+  id: "domains",
+  label: "Domínios",
+  icon: "🌐"
+}, {
+  id: "integrations",
+  label: "Integrações",
+  icon: "🔌"
+}, {
+  id: "team",
+  label: "Equipe",
+  icon: "👥"
+}];
+function Sidebar() {
+  const { page, go, user, logout } = useContext(NavCtx);
+
+  // Iniciais para o avatar (ex: "Ana Souza" → "AS")
+  const initials = user?.name
+    ? user.name.split(' ').slice(0, 2).map(w => w[0]).toUpperCase().join('')
+    : (user?.githubUsername?.[0] ?? '?').toUpperCase();
+
+  const roleChip = ROLE_CFG[user?.role] ?? ROLE_CFG.viewer;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 216,
+      flexShrink: 0,
+      height: "100vh",
+      position: "fixed",
+      top: 0,
+      left: 0,
+      background: T.bg,
+      borderRight: `1px solid ${T.border}`,
+      display: "flex",
+      flexDirection: "column",
+      fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px 18px 16px",
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 32,
+      height: 32,
+      borderRadius: 8,
+      flexShrink: 0,
+      background: `linear-gradient(135deg,${T.amber},${T.amberDim})`,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 900,
+      fontSize: 16,
+      color: "#000",
+      fontFamily: "monospace"
+    }
+  }, "A"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 800,
+      fontSize: 14,
+      color: T.txtPri,
+      letterSpacing: "-0.01em"
+    }
+  }, "AdminOS"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: T.txtSec,
+      fontFamily: "monospace"
+    }
+  }, "v1.0.0 \u2014 painel")))), /*#__PURE__*/React.createElement("nav", {
+    style: {
+      flex: 1,
+      padding: "8px 0"
+    }
+  }, NAV_ITEMS.map(item => {
+    const active = page === item.id;
+    return /*#__PURE__*/React.createElement("button", {
+      key: item.id,
+      onClick: () => go(item.id),
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        width: "calc(100% - 16px)",
+        margin: "1px 8px",
+        padding: "9px 12px",
+        borderRadius: 8,
+        border: "none",
+        cursor: "pointer",
+        background: active ? T.amber + "18" : "transparent",
+        color: active ? T.amber : T.txtSec,
+        fontSize: 13,
+        fontWeight: active ? 600 : 400,
+        fontFamily: "inherit",
+        transition: "all .15s",
+        textAlign: "left"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 15,
+        opacity: active ? 1 : 0.6
+      }
+    }, item.icon), item.label);
+  })), /*#__PURE__*/React.createElement("div", {
+    style: { padding: 12, borderTop: `1px solid ${T.border}` }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex", alignItems: "center", gap: 10, padding: "10px 12px",
+      borderRadius: 8, background: T.surface2, border: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+      background: T.amber + "25", color: T.amber,
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontWeight: 800, fontSize: 12
+    }
+  }, initials),
+  /*#__PURE__*/React.createElement("div", { style: { flex: 1, minWidth: 0 } },
+    /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12, fontWeight: 600, color: T.txtPri, lineHeight: 1.2,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+      }
+    }, user?.name ?? user?.githubUsername ?? "Usuário"),
+    /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10, fontFamily: "monospace", color: T.txtSec, marginTop: 1,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+      }
+    }, user?.githubUsername ? `@${user.githubUsername}` : ""),
+    /*#__PURE__*/React.createElement(Chip, { cfg: roleChip })
+  ),
+  /*#__PURE__*/React.createElement("button", {
+    onClick: logout, title: "Sair",
+    style: {
+      background: "transparent", border: "none", cursor: "pointer",
+      color: T.txtSec, fontSize: 16, lineHeight: 1,
+      padding: 4, borderRadius: 4, flexShrink: 0, transition: "color .15s"
+    },
+    onMouseEnter: e => e.currentTarget.style.color = T.rose,
+    onMouseLeave: e => e.currentTarget.style.color = T.txtSec
+  }, "⏻"))));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: DASHBOARD
+// ═══════════════════════════════════════════════════════════════════════════
+function DashboardPage() {
+  const statsRow = [{
+    label: "Total de Apps",
+    value: 8,
+    icon: "📦",
+    color: T.amber,
+    sub: "8 cadastrados"
+  }, {
+    label: "Apps Ativos",
+    value: 4,
+    icon: "✅",
+    color: T.emerald,
+    sub: "+1 este mês"
+  }, {
+    label: "Domínios",
+    value: 5,
+    icon: "🌐",
+    color: T.sky,
+    sub: "3 com SSL ativo"
+  }, {
+    label: "Integrações",
+    value: 6,
+    icon: "🔌",
+    color: T.violet,
+    sub: "4 conectadas"
+  }, {
+    label: "Membros",
+    value: 5,
+    icon: "👥",
+    color: T.orange,
+    sub: "4 ativos"
+  }, {
+    label: "Uptime médio",
+    value: "98.7%",
+    icon: "⚡",
+    color: T.emerald,
+    sub: "últimas 24h"
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: "Dashboard",
+    subtitle: "Vis\xE3o geral do painel administrativo \u2014 10 Mar 2026"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      marginBottom: 20,
+      flexWrap: "wrap"
+    }
+  }, statsRow.map(s => /*#__PURE__*/React.createElement(StatCard, _extends({
+    key: s.label
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "2fr 1fr",
+      gap: 14,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      marginBottom: 12
+    }
+  }, "Requisi\xE7\xF5es \u2014 \xFAltimas 24h"), /*#__PURE__*/React.createElement(SvgAreaChart, {
+    data: CHART_DATA
+  })), /*#__PURE__*/React.createElement("div", {
+    style: card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      marginBottom: 12
+    }
+  }, "Apps por Status"), /*#__PURE__*/React.createElement(SvgBarChart, {
+    data: BAR_DATA
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color: T.txtSec,
+      marginBottom: 14
+    }
+  }, "Apps recentes"), APPS.slice(0, 5).map((app, i) => /*#__PURE__*/React.createElement("div", {
+    key: app.id,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "10px 0",
+      borderBottom: i < 4 ? `1px solid ${T.border}30` : "none"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 28,
+      height: 28,
+      borderRadius: 7,
+      flexShrink: 0,
+      background: T.amber + "18",
+      color: T.amber,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 800,
+      fontSize: 12
+    }
+  }, app.name[0]), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      fontWeight: 600,
+      color: T.txtPri
+    }
+  }, app.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, "v", app.version, " \xB7", " ", app.baseUrl ? /*#__PURE__*/React.createElement("a", {
+    href: app.baseUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      color: T.sky,
+      textDecoration: "none"
+    },
+    onMouseEnter: e => e.currentTarget.style.textDecoration = "underline",
+    onMouseLeave: e => e.currentTarget.style.textDecoration = "none"
+  }, app.baseUrl.replace(/^https?:\/\//, "")) : "—")), /*#__PURE__*/React.createElement(Chip, {
+    cfg: STATUS_CFG[app.status]
+  })))));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: APP DETAIL
+// ═══════════════════════════════════════════════════════════════════════════
+function AppDetailPage({
+  app,
+  onBack,
+  onSave
+}) {
+  const [tab, setTab] = useState("users");
+  const [users, setUsers] = useState(() => APP_USERS_MAP[app.id] ?? []);
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [newUser, setNewUser] = useState({
+    name: "",
+    email: "",
+    role: "viewer"
+  });
+  const [removeUserId, setRemoveUserId] = useState(null);
+  const [versions, setVersions] = useState(() => getVersions(app.id));
+  const [versionOpen, setVersionOpen] = useState(false);
+  const [newVersion, setNewVersion] = useState({
+    version: "",
+    notes: ""
+  });
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [draftStatus, setDraftStatus] = useState(app.status);
+  const [envVars, setEnvVars] = useState(() => getEnvVars(app.id));
+  const [envOpen, setEnvOpen] = useState(false);
+  const [newEnv, setNewEnv] = useState({
+    key: "",
+    value: "",
+    secret: false
+  });
+  const [revealedKeys, setRevealedKeys] = useState({});
+  const fmtDate = iso => iso ? new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }) : "—";
+  const initials = name => name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const LOG_COLORS = {
+    info: T.sky,
+    warn: T.amber,
+    error: T.rose
+  };
+  const LOG_ICONS = {
+    info: "ℹ️",
+    warn: "⚠️",
+    error: "🔴"
+  };
+  const saveStatus = () => {
+    onSave({
+      ...app,
+      status: draftStatus,
+      updatedAt: new Date().toISOString().slice(0, 10)
+    });
+    setStatusOpen(false);
+  };
+  const saveVersion = () => {
+    if (!newVersion.version.trim()) return;
+    const today = new Date().toISOString().slice(0, 10);
+    setVersions(prev => [{
+      ...newVersion,
+      date: today,
+      author: "Ana Souza"
+    }, ...prev]);
+    onSave({
+      ...app,
+      version: newVersion.version,
+      updatedAt: today
+    });
+    setNewVersion({
+      version: "",
+      notes: ""
+    });
+    setVersionOpen(false);
+  };
+  const addUser = () => {
+    if (!newUser.name.trim() || !newUser.email.trim()) return;
+    setUsers(prev => [...prev, {
+      ...newUser,
+      id: `u${Date.now()}`,
+      lastAccess: new Date().toISOString()
+    }]);
+    setNewUser({
+      name: "",
+      email: "",
+      role: "viewer"
+    });
+    setAddUserOpen(false);
+  };
+  const removeUser = () => {
+    setUsers(prev => prev.filter(u => u.id !== removeUserId));
+    setRemoveUserId(null);
+  };
+  const addEnvVar = () => {
+    if (!newEnv.key.trim()) return;
+    setEnvVars(prev => [...prev, {
+      ...newEnv
+    }]);
+    setNewEnv({
+      key: "",
+      value: "",
+      secret: false
+    });
+    setEnvOpen(false);
+  };
+  const removeEnvVar = key => setEnvVars(prev => prev.filter(e => e.key !== key));
+  const toggleReveal = key => setRevealedKeys(p => ({
+    ...p,
+    [key]: !p[key]
+  }));
+  const tabBtn = (id, label) => /*#__PURE__*/React.createElement("button", {
+    key: id,
+    onClick: () => setTab(id),
+    style: {
+      padding: "8px 16px",
+      border: "none",
+      cursor: "pointer",
+      borderRadius: 7,
+      fontSize: 12,
+      fontWeight: 600,
+      fontFamily: "inherit",
+      background: tab === id ? T.amber + "22" : "transparent",
+      color: tab === id ? T.amber : T.txtSec,
+      borderBottom: tab === id ? `2px solid ${T.amber}` : "2px solid transparent",
+      transition: "all .15s"
+    }
+  }, label);
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 24,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: onBack,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      background: "transparent",
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "7px 12px",
+      color: T.txtSec,
+      cursor: "pointer",
+      fontSize: 12,
+      fontFamily: "inherit",
+      transition: "border-color .15s"
+    },
+    onMouseEnter: e => e.currentTarget.style.borderColor = T.amber,
+    onMouseLeave: e => e.currentTarget.style.borderColor = T.border
+  }, "\u2190 Voltar"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontSize: 12,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    onClick: onBack,
+    style: {
+      cursor: "pointer"
+    },
+    onMouseEnter: e => e.currentTarget.style.color = T.amber,
+    onMouseLeave: e => e.currentTarget.style.color = T.txtSec
+  }, "Apps"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      opacity: 0.4
+    }
+  }, "\u203A"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: T.txtPri,
+      fontWeight: 600
+    }
+  }, app.name))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      flexWrap: "wrap",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 52,
+      height: 52,
+      borderRadius: 12,
+      flexShrink: 0,
+      background: `linear-gradient(135deg,${T.amber}30,${T.amberDim}20)`,
+      color: T.amber,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 900,
+      fontSize: 22,
+      border: `1px solid ${T.amber}30`
+    }
+  }, app.name[0]), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 800,
+      color: T.txtPri,
+      letterSpacing: "-0.02em",
+      lineHeight: 1.1
+    }
+  }, app.name), app.baseUrl ? /*#__PURE__*/React.createElement("a", {
+    href: app.baseUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      fontSize: 12,
+      color: T.sky,
+      marginTop: 4,
+      fontFamily: "monospace",
+      display: "inline-block",
+      textDecoration: "none"
+    },
+    onMouseEnter: e => e.currentTarget.style.textDecoration = "underline",
+    onMouseLeave: e => e.currentTarget.style.textDecoration = "none"
+  }, "\u2197 ", app.baseUrl) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.txtSec,
+      marginTop: 4,
+      fontFamily: "monospace"
+    }
+  }, "\u2014"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      marginTop: 8,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement(Chip, {
+    cfg: TYPE_CFG[app.type] ?? TYPE_CFG.web,
+    size: "md"
+  }), /*#__PURE__*/React.createElement(Chip, {
+    cfg: STATUS_CFG[app.status] ?? STATUS_CFG.draft,
+    size: "md"
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      padding: "3px 10px",
+      borderRadius: 4,
+      fontSize: 11,
+      fontWeight: 700,
+      fontFamily: "monospace",
+      color: T.violet,
+      background: T.violet + "20",
+      border: `1px solid ${T.violet}40`
+    }
+  }, "v", app.version)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap"
+    }
+  }, app.baseUrl && /*#__PURE__*/React.createElement("a", {
+    href: app.baseUrl,
+    target: "_blank",
+    rel: "noopener noreferrer",
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "9px 18px",
+      borderRadius: 7,
+      fontSize: 13,
+      fontWeight: 600,
+      background: "transparent",
+      border: `1px solid ${T.border}`,
+      color: T.sky,
+      textDecoration: "none",
+      fontFamily: "inherit",
+      transition: "border-color .15s"
+    },
+    onMouseEnter: e => e.currentTarget.style.borderColor = T.sky,
+    onMouseLeave: e => e.currentTarget.style.borderColor = T.border
+  }, "\u2197 Visitar App"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "outline",
+    size: "md",
+    onClick: () => {
+      setDraftStatus(app.status);
+      setStatusOpen(true);
+    }
+  }, "\uD83D\uDD04 Alterar Status"), /*#__PURE__*/React.createElement(Btn, {
+    size: "md",
+    onClick: () => {
+      setNewVersion({
+        version: "",
+        notes: ""
+      });
+      setVersionOpen(true);
+    }
+  }, "\uD83D\uDE80 Nova Vers\xE3o"))), app.description && /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginTop: 14,
+      fontSize: 13,
+      color: T.txtSec,
+      borderTop: `1px solid ${T.border}`,
+      paddingTop: 14,
+      lineHeight: 1.6
+    }
+  }, app.description), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 24,
+      marginTop: 14,
+      flexWrap: "wrap"
+    }
+  }, [["Última atualização", app.updatedAt ?? "—"], ["Usuários com acesso", users.length], ["Versões registradas", versions.length], ["Variáveis de ambiente", envVars.length]].map(([label, value]) => /*#__PURE__*/React.createElement("div", {
+    key: label
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      textTransform: "uppercase",
+      letterSpacing: "0.1em",
+      color: T.txtSec,
+      marginBottom: 2
+    }
+  }, label), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      color: T.txtPri
+    }
+  }, value))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 2,
+      marginBottom: 14,
+      borderBottom: `1px solid ${T.border}`
+    }
+  }, tabBtn("users", `👥 Usuários (${users.length})`), tabBtn("versions", `📦 Versões (${versions.length})`), tabBtn("env", `⚙️ Ambiente (${envVars.length})`), tabBtn("logs", "📋 Logs")), tab === "users" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, users.length, " membro", users.length !== 1 ? "s" : "", " com acesso a este app"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setAddUserOpen(true)
+  }, "\uFF0B Adicionar Usu\xE1rio")), users.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      textAlign: "center",
+      padding: 48,
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "Nenhum usu\xE1rio com acesso a este app.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+      gap: 12
+    }
+  }, users.map(u => /*#__PURE__*/React.createElement("div", {
+    key: u.id,
+    style: {
+      ...card,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+      position: "relative"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRemoveUserId(u.id),
+    title: "Remover acesso",
+    style: {
+      position: "absolute",
+      top: 10,
+      right: 10,
+      background: "transparent",
+      border: "none",
+      color: T.txtSec,
+      cursor: "pointer",
+      fontSize: 14,
+      lineHeight: 1,
+      padding: 2,
+      borderRadius: 4
+    },
+    onMouseEnter: e => e.currentTarget.style.color = T.rose,
+    onMouseLeave: e => e.currentTarget.style.color = T.txtSec
+  }, "\u2715"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 36,
+      height: 36,
+      borderRadius: "50%",
+      flexShrink: 0,
+      background: (ROLE_CFG[u.role]?.color ?? T.amber) + "25",
+      color: ROLE_CFG[u.role]?.color ?? T.amber,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontWeight: 800,
+      fontSize: 12
+    }
+  }, initials(u.name)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 600,
+      color: T.txtPri,
+      fontSize: 13
+    }
+  }, u.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, u.email))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement(Chip, {
+    cfg: ROLE_CFG[u.role] ?? {
+      label: u.role,
+      color: T.txtSec
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, fmtDate(u.lastAccess)))))), /*#__PURE__*/React.createElement(Modal, {
+    open: addUserOpen,
+    onClose: () => setAddUserOpen(false),
+    title: "\uFF0B Adicionar Usu\xE1rio",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setAddUserOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: addUser
+    }, "Adicionar"))
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nome *",
+    value: newUser.name,
+    onChange: v => setNewUser(p => ({
+      ...p,
+      name: v
+    })),
+    placeholder: "Nome completo"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "E-mail *",
+    value: newUser.email,
+    onChange: v => setNewUser(p => ({
+      ...p,
+      email: v
+    })),
+    placeholder: "email@empresa.com",
+    type: "email"
+  }), /*#__PURE__*/React.createElement(Select2, {
+    label: "Fun\xE7\xE3o",
+    value: newUser.role,
+    onChange: v => setNewUser(p => ({
+      ...p,
+      role: v
+    })),
+    options: [{
+      value: "admin",
+      label: "Admin"
+    }, {
+      value: "editor",
+      label: "Editor"
+    }, {
+      value: "viewer",
+      label: "Viewer"
+    }]
+  })), /*#__PURE__*/React.createElement(Modal, {
+    open: !!removeUserId,
+    onClose: () => setRemoveUserId(null),
+    title: "Remover Acesso",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setRemoveUserId(null)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: removeUser
+    }, "Remover"))
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: T.txtSec,
+      fontSize: 13,
+      lineHeight: 1.6
+    }
+  }, "O usu\xE1rio perder\xE1 acesso a este app. Voc\xEA pode adicion\xE1-lo novamente depois."))), tab === "versions" && /*#__PURE__*/React.createElement("div", null, versions.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      textAlign: "center",
+      padding: 48,
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "Nenhum hist\xF3rico de vers\xF5es registrado.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, versions.map((v, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 14,
+      padding: "14px 20px",
+      borderBottom: i < versions.length - 1 ? `1px solid ${T.border}30` : "none",
+      transition: "background .1s"
+    },
+    onMouseEnter: e => e.currentTarget.style.background = T.txtPri + "04",
+    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      paddingTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 10,
+      height: 10,
+      borderRadius: "50%",
+      flexShrink: 0,
+      background: i === 0 ? T.amber : T.border,
+      border: i === 0 ? `2px solid ${T.amber}60` : "none"
+    }
+  }), i < versions.length - 1 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      flex: 1,
+      minHeight: 24,
+      background: T.border + "60",
+      marginTop: 4
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 4,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: "monospace",
+      fontWeight: 700,
+      fontSize: 13,
+      color: i === 0 ? T.amber : T.txtPri
+    }
+  }, "v", v.version), i === 0 && /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 9,
+      fontFamily: "monospace",
+      fontWeight: 700,
+      background: T.emerald + "22",
+      color: T.emerald,
+      padding: "1px 6px",
+      borderRadius: 3,
+      letterSpacing: "0.08em"
+    }
+  }, "ATUAL"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: T.txtSec,
+      fontFamily: "monospace"
+    }
+  }, v.date), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: T.txtSec
+    }
+  }, "por ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: T.txtPri
+    }
+  }, v.author))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: T.txtSec,
+      lineHeight: 1.5
+    }
+  }, v.notes)))))), tab === "env" && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, envVars.length, " vari\xE1vel", envVars.length !== 1 ? "is" : "", " configurada", envVars.length !== 1 ? "s" : ""), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setEnvOpen(true)
+  }, "\uFF0B Nova Vari\xE1vel")), envVars.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      textAlign: "center",
+      padding: 48,
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "Nenhuma vari\xE1vel de ambiente configurada.") : /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, envVars.map((e, i) => /*#__PURE__*/React.createElement("div", {
+    key: e.key,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "11px 18px",
+      borderBottom: i < envVars.length - 1 ? `1px solid ${T.border}30` : "none",
+      transition: "background .1s"
+    },
+    onMouseEnter: el => el.currentTarget.style.background = T.txtPri + "04",
+    onMouseLeave: el => el.currentTarget.style.background = "transparent"
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      flexShrink: 0
+    }
+  }, e.secret ? "🔒" : "📄"), /*#__PURE__*/React.createElement("code", {
+    style: {
+      fontFamily: "monospace",
+      fontSize: 12,
+      fontWeight: 600,
+      color: T.sky,
+      minWidth: 220,
+      flexShrink: 0
+    }
+  }, e.key), /*#__PURE__*/React.createElement("code", {
+    style: {
+      fontFamily: "monospace",
+      fontSize: 12,
+      color: T.txtSec,
+      flex: 1,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, e.secret && !revealedKeys[e.key] ? "••••••••••••••••" : e.value), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6,
+      flexShrink: 0
+    }
+  }, e.secret && /*#__PURE__*/React.createElement("button", {
+    onClick: () => toggleReveal(e.key),
+    style: {
+      background: "transparent",
+      border: `1px solid ${T.border}`,
+      borderRadius: 5,
+      padding: "3px 8px",
+      cursor: "pointer",
+      fontSize: 11,
+      color: T.txtSec,
+      fontFamily: "monospace"
+    }
+  }, revealedKeys[e.key] ? "🙈 Ocultar" : "👁 Revelar"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => removeEnvVar(e.key),
+    style: {
+      background: "transparent",
+      border: `1px solid ${T.rose}40`,
+      borderRadius: 5,
+      padding: "3px 8px",
+      cursor: "pointer",
+      fontSize: 11,
+      color: T.rose,
+      fontFamily: "monospace"
+    },
+    onMouseEnter: el => el.currentTarget.style.background = T.rose + "12",
+    onMouseLeave: el => el.currentTarget.style.background = "transparent"
+  }, "\uD83D\uDDD1 Remover"))))), /*#__PURE__*/React.createElement(Modal, {
+    open: envOpen,
+    onClose: () => setEnvOpen(false),
+    title: "\uFF0B Nova Vari\xE1vel de Ambiente",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setEnvOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: addEnvVar
+    }, "Adicionar"))
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Chave *",
+    value: newEnv.key,
+    onChange: v => setNewEnv(p => ({
+      ...p,
+      key: v
+    })),
+    placeholder: "NOME_DA_VARIAVEL",
+    mono: true
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Valor",
+    value: newEnv.value,
+    onChange: v => setNewEnv(p => ({
+      ...p,
+      value: v
+    })),
+    placeholder: "valor ou refer\xEAncia",
+    mono: true
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    id: "secretToggle",
+    type: "checkbox",
+    checked: newEnv.secret,
+    onChange: e => setNewEnv(p => ({
+      ...p,
+      secret: e.target.checked
+    })),
+    style: {
+      cursor: "pointer",
+      accentColor: T.amber
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    htmlFor: "secretToggle",
+    style: {
+      fontSize: 12,
+      color: T.txtSec,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDD12 Marcar como vari\xE1vel secreta")))), tab === "logs" && (() => {
+    const logs = getLogs(app.id);
+    return /*#__PURE__*/React.createElement("div", null, logs.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...card,
+        textAlign: "center",
+        padding: 48,
+        color: T.txtSec,
+        fontSize: 13
+      }
+    }, "Nenhum log dispon\xEDvel para este app.") : /*#__PURE__*/React.createElement("div", {
+      style: {
+        ...card,
+        padding: 0,
+        overflow: "hidden"
+      }
+    }, logs.map((log, i) => /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 12,
+        padding: "11px 18px",
+        borderBottom: i < logs.length - 1 ? `1px solid ${T.border}20` : "none",
+        borderLeft: `3px solid ${LOG_COLORS[log.level] ?? T.txtSec}50`,
+        transition: "background .1s"
+      },
+      onMouseEnter: e => e.currentTarget.style.background = T.txtPri + "04",
+      onMouseLeave: e => e.currentTarget.style.background = "transparent"
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 13,
+        flexShrink: 0,
+        paddingTop: 1
+      }
+    }, LOG_ICONS[log.level] ?? "•"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: T.txtPri,
+        lineHeight: 1.5
+      }
+    }, log.msg), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 10,
+        fontFamily: "monospace",
+        color: T.txtSec,
+        marginTop: 2
+      }
+    }, fmtDate(log.time), /*#__PURE__*/React.createElement("span", {
+      style: {
+        marginLeft: 8,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        color: LOG_COLORS[log.level] ?? T.txtSec
+      }
+    }, log.level)))))));
+  })(), /*#__PURE__*/React.createElement(Modal, {
+    open: statusOpen,
+    onClose: () => setStatusOpen(false),
+    title: "\uD83D\uDD04 Alterar Status do App",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setStatusOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: saveStatus
+    }, "Salvar"))
+  }, /*#__PURE__*/React.createElement(Select2, {
+    label: "Novo status",
+    value: draftStatus,
+    onChange: setDraftStatus,
+    options: [{
+      value: "active",
+      label: "Ativo"
+    }, {
+      value: "inactive",
+      label: "Inativo"
+    }, {
+      value: "maintenance",
+      label: "Manutenção"
+    }, {
+      value: "draft",
+      label: "Rascunho"
+    }]
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: T.txtSec,
+      lineHeight: 1.6,
+      marginTop: 4
+    }
+  }, "A altera\xE7\xE3o reflete imediatamente na listagem de apps e no dashboard.")), /*#__PURE__*/React.createElement(Modal, {
+    open: versionOpen,
+    onClose: () => setVersionOpen(false),
+    title: "\uD83D\uDE80 Registrar Nova Vers\xE3o",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setVersionOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: saveVersion
+    }, "Registrar"))
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Vers\xE3o *",
+    value: newVersion.version,
+    onChange: v => setNewVersion(p => ({
+      ...p,
+      version: v
+    })),
+    placeholder: "ex: 2.5.0",
+    mono: true
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Notas de lan\xE7amento",
+    value: newVersion.notes,
+    onChange: v => setNewVersion(p => ({
+      ...p,
+      notes: v
+    })),
+    placeholder: "Descreva as mudan\xE7as desta vers\xE3o"
+  })));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: APPS  — TODOS OS HOOKS ANTES DE QUALQUER EARLY RETURN
+// ═══════════════════════════════════════════════════════════════════════════
+function AppsPage() {
+  // ── Todos os hooks declarados no topo — sem exceção ──────────────────────
+  const [apps, setApps] = useState(APPS);
+  const [selectedApp, setSelectedApp] = useState(null);
+  const [search, setSearch] = useState("");
+  const [statusF, setStatusF] = useState("all");
+  const [typeF, setTypeF] = useState("all");
+  const [page, setPage] = useState(0);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editApp, setEditApp] = useState(null);
+  const [deleteId, setDeleteId] = useState(null);
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    status: "draft",
+    type: "web",
+    version: "1.0.0",
+    baseUrl: ""
+  });
+  const PER_PAGE = 5;
+  const filtered = useMemo(() => apps.filter(a => {
+    const ms = !search || a.name.toLowerCase().includes(search.toLowerCase()) || a.description?.toLowerCase().includes(search.toLowerCase());
+    const mst = statusF === "all" || a.status === statusF;
+    const mt = typeF === "all" || a.type === typeF;
+    return ms && mst && mt;
+  }), [apps, search, statusF, typeF]);
+  const paginated = filtered.slice(page * PER_PAGE, (page + 1) * PER_PAGE);
+  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+  const openCreate = () => {
+    setEditApp(null);
+    setForm({
+      name: "",
+      description: "",
+      status: "draft",
+      type: "web",
+      version: "1.0.0",
+      baseUrl: ""
+    });
+    setModalOpen(true);
+  };
+  const openEdit = app => {
+    setEditApp(app);
+    setForm({
+      name: app.name,
+      description: app.description || "",
+      status: app.status,
+      type: app.type,
+      version: app.version,
+      baseUrl: app.baseUrl || ""
+    });
+    setModalOpen(true);
+  };
+  const saveApp = () => {
+    if (!form.name.trim()) return;
+    const today = new Date().toISOString().slice(0, 10);
+    if (editApp) {
+      setApps(prev => prev.map(a => a.id === editApp.id ? {
+        ...a,
+        ...form,
+        updatedAt: today
+      } : a));
+    } else {
+      setApps(prev => [...prev, {
+        ...form,
+        id: String(Date.now()),
+        updatedAt: today
+      }]);
+    }
+    setModalOpen(false);
+  };
+  const deleteApp = () => {
+    setApps(prev => prev.filter(a => a.id !== deleteId));
+    setDeleteId(null);
+  };
+
+  // ── Early return APÓS todos os hooks ─────────────────────────────────────
+  if (selectedApp) {
+    const liveApp = apps.find(a => a.id === selectedApp.id) ?? selectedApp;
+    return /*#__PURE__*/React.createElement(AppDetailPage, {
+      app: liveApp,
+      onBack: () => setSelectedApp(null),
+      onSave: updated => {
+        setApps(prev => prev.map(a => a.id === updated.id ? updated : a));
+        setSelectedApp(updated);
+      }
+    });
+  }
+  const statsRow = [{
+    label: "Total",
+    value: apps.length,
+    icon: "📦",
+    color: T.amber
+  }, {
+    label: "Ativos",
+    value: apps.filter(a => a.status === "active").length,
+    icon: "✅",
+    color: T.emerald
+  }, {
+    label: "Inativos",
+    value: apps.filter(a => a.status === "inactive").length,
+    icon: "❌",
+    color: T.rose
+  }, {
+    label: "Manutenção",
+    value: apps.filter(a => a.status === "maintenance").length,
+    icon: "🔧",
+    color: T.orange
+  }, {
+    label: "Rascunho",
+    value: apps.filter(a => a.status === "draft").length,
+    icon: "📝",
+    color: T.violet
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: "Gerenciar Apps",
+    subtitle: "Edite status, vers\xE3o e configura\xE7\xF5es dos aplicativos existentes",
+    action: /*#__PURE__*/React.createElement(Btn, {
+      onClick: openCreate
+    }, "\uFF0B Novo App")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      marginBottom: 20,
+      flexWrap: "wrap"
+    }
+  }, statsRow.map(s => /*#__PURE__*/React.createElement(StatCard, _extends({
+    key: s.label
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 10,
+      flexWrap: "wrap",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: search,
+    onChange: e => {
+      setSearch(e.target.value);
+      setPage(0);
+    },
+    placeholder: "\uD83D\uDD0D  Buscar por nome\u2026",
+    style: {
+      flex: 1,
+      minWidth: 180,
+      background: T.surface2,
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "8px 12px",
+      color: T.txtPri,
+      fontSize: 13,
+      outline: "none"
+    }
+  }), /*#__PURE__*/React.createElement("select", {
+    value: statusF,
+    onChange: e => {
+      setStatusF(e.target.value);
+      setPage(0);
+    },
+    style: {
+      background: T.surface2,
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "8px 10px",
+      color: T.txtPri,
+      fontSize: 12,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Status: Todos"), ["active", "inactive", "maintenance", "draft"].map(s => /*#__PURE__*/React.createElement("option", {
+    key: s,
+    value: s
+  }, STATUS_CFG[s].label))), /*#__PURE__*/React.createElement("select", {
+    value: typeF,
+    onChange: e => {
+      setTypeF(e.target.value);
+      setPage(0);
+    },
+    style: {
+      background: T.surface2,
+      border: `1px solid ${T.border}`,
+      borderRadius: 7,
+      padding: "8px 10px",
+      color: T.txtPri,
+      fontSize: 12,
+      cursor: "pointer"
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "all"
+  }, "Tipo: Todos"), Object.entries(TYPE_CFG).map(([k, cfg]) => /*#__PURE__*/React.createElement("option", {
+    key: k,
+    value: k
+  }, cfg.label))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, filtered.length, " resultado", filtered.length !== 1 ? "s" : ""))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(Table, {
+    rows: paginated,
+    cols: [{
+      label: "Nome",
+      render: a => /*#__PURE__*/React.createElement("div", {
+        onClick: () => setSelectedApp(a),
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          cursor: "pointer"
+        },
+        title: "Abrir detalhe do app"
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          width: 28,
+          height: 28,
+          borderRadius: 7,
+          flexShrink: 0,
+          background: T.amber + "18",
+          color: T.amber,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 800,
+          fontSize: 12
+        }
+      }, a.name[0]), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontWeight: 600,
+          color: T.amber,
+          textDecoration: "underline",
+          textUnderlineOffset: 3
+        }
+      }, a.name), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          color: T.txtSec,
+          maxWidth: 200,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap"
+        }
+      }, a.description)))
+    }, {
+      label: "Tipo",
+      render: a => /*#__PURE__*/React.createElement(Chip, {
+        cfg: TYPE_CFG[a.type] ?? TYPE_CFG.web
+      })
+    }, {
+      label: "Status",
+      render: a => /*#__PURE__*/React.createElement(Chip, {
+        cfg: STATUS_CFG[a.status] ?? STATUS_CFG.draft
+      })
+    }, {
+      label: "Versão",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "monospace",
+          fontSize: 11,
+          color: T.txtSec,
+          background: T.surface2,
+          padding: "2px 6px",
+          borderRadius: 4
+        }
+      }, "v", a.version)
+    }, {
+      label: "URL",
+      render: a => a.baseUrl ? /*#__PURE__*/React.createElement("a", {
+        href: a.baseUrl,
+        target: "_blank",
+        rel: "noopener noreferrer",
+        onClick: e => e.stopPropagation(),
+        style: {
+          fontFamily: "monospace",
+          fontSize: 11,
+          color: T.sky,
+          maxWidth: 160,
+          display: "block",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          textDecoration: "none"
+        },
+        onMouseEnter: e => e.currentTarget.style.textDecoration = "underline",
+        onMouseLeave: e => e.currentTarget.style.textDecoration = "none",
+        title: `Abrir ${a.baseUrl}`
+      }, "\u2197 ", a.baseUrl.replace(/^https?:\/\//, "")) : /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: T.txtSec
+        }
+      }, "\u2014")
+    }, {
+      label: "Atualizado",
+      render: a => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          color: T.txtSec
+        }
+      }, a.updatedAt)
+    }, {
+      label: "Ações",
+      right: true,
+      render: a => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          justifyContent: "flex-end"
+        }
+      }, /*#__PURE__*/React.createElement(Btn, {
+        variant: "ghost",
+        onClick: () => setSelectedApp(a)
+      }, "\uD83D\uDD0D Abrir"), /*#__PURE__*/React.createElement(Btn, {
+        variant: "outline",
+        onClick: () => openEdit(a)
+      }, "\u270F\uFE0F Editar"), /*#__PURE__*/React.createElement(Btn, {
+        variant: "danger",
+        onClick: () => setDeleteId(a.id)
+      }, "\uD83D\uDDD1"))
+    }]
+  }), totalPages > 1 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      padding: "12px 16px",
+      borderTop: `1px solid ${T.border}`
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      fontFamily: "monospace",
+      color: T.txtSec
+    }
+  }, "P\xE1gina ", page + 1, " de ", totalPages, " \u2014 ", filtered.length, " itens"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "outline",
+    onClick: () => setPage(p => Math.max(0, p - 1)),
+    disabled: page === 0
+  }, "\u2190 Anterior"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "outline",
+    onClick: () => setPage(p => Math.min(totalPages - 1, p + 1)),
+    disabled: page === totalPages - 1
+  }, "Pr\xF3ximo \u2192")))), /*#__PURE__*/React.createElement(Modal, {
+    open: modalOpen,
+    onClose: () => setModalOpen(false),
+    title: editApp ? "✏️ Editar App" : "＋ Novo App",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setModalOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: saveApp
+    }, "Salvar"))
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nome *",
+    value: form.name,
+    onChange: v => setForm(p => ({
+      ...p,
+      name: v
+    })),
+    placeholder: "Nome do app"
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "Descri\xE7\xE3o",
+    value: form.description,
+    onChange: v => setForm(p => ({
+      ...p,
+      description: v
+    })),
+    placeholder: "Descri\xE7\xE3o breve"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(Select2, {
+    label: "Status",
+    value: form.status,
+    onChange: v => setForm(p => ({
+      ...p,
+      status: v
+    })),
+    options: ["active", "inactive", "maintenance", "draft"].map(s => ({
+      value: s,
+      label: STATUS_CFG[s].label
+    }))
+  }), /*#__PURE__*/React.createElement(Select2, {
+    label: "Tipo",
+    value: form.type,
+    onChange: v => setForm(p => ({
+      ...p,
+      type: v
+    })),
+    options: Object.entries(TYPE_CFG).map(([k, cfg]) => ({
+      value: k,
+      label: cfg.label
+    }))
+  })), /*#__PURE__*/React.createElement(Input, {
+    label: "Vers\xE3o",
+    value: form.version,
+    onChange: v => setForm(p => ({
+      ...p,
+      version: v
+    })),
+    placeholder: "1.0.0",
+    mono: true
+  }), /*#__PURE__*/React.createElement(Input, {
+    label: "URL Base",
+    value: form.baseUrl,
+    onChange: v => setForm(p => ({
+      ...p,
+      baseUrl: v
+    })),
+    placeholder: "https://app.empresa.com"
+  })), /*#__PURE__*/React.createElement(Modal, {
+    open: !!deleteId,
+    onClose: () => setDeleteId(null),
+    title: "\u26A0\uFE0F Deletar App",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setDeleteId(null)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: deleteApp
+    }, "Deletar definitivamente"))
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: T.txtSec,
+      fontSize: 13,
+      lineHeight: 1.6
+    }
+  }, "Esta a\xE7\xE3o \xE9 ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: T.rose
+    }
+  }, "irrevers\xEDvel"), ". O app ser\xE1 removido permanentemente do sistema.")));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: DOMAINS
+// ═══════════════════════════════════════════════════════════════════════════
+function DomainsPage() {
+  const [domains, setDomains] = useState(DOMAINS);
+  const [addOpen, setAddOpen] = useState(false);
+  const [newDomain, setNewDomain] = useState("");
+  const [deleteId, setDeleteId] = useState(null);
+  const addDomain = () => {
+    if (!newDomain.trim()) return;
+    setDomains(prev => [...prev, {
+      id: String(Date.now()),
+      name: newDomain,
+      status: "pending",
+      ssl: false,
+      sslExp: null,
+      apps: 0
+    }]);
+    setNewDomain("");
+    setAddOpen(false);
+  };
+  const verify = id => setDomains(prev => prev.map(d => d.id === id ? {
+    ...d,
+    status: "active"
+  } : d));
+  const remove = () => {
+    setDomains(prev => prev.filter(d => d.id !== deleteId));
+    setDeleteId(null);
+  };
+  const statsRow = [{
+    label: "Total",
+    value: domains.length,
+    icon: "🌐",
+    color: T.sky
+  }, {
+    label: "Ativos",
+    value: domains.filter(d => d.status === "active").length,
+    icon: "✅",
+    color: T.emerald
+  }, {
+    label: "Com SSL",
+    value: domains.filter(d => d.ssl).length,
+    icon: "🔒",
+    color: T.violet
+  }, {
+    label: "Atenção",
+    value: domains.filter(d => d.status !== "active").length,
+    icon: "⚠️",
+    color: T.rose
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: "Dom\xEDnios",
+    subtitle: "Gerencie os dom\xEDnios associados aos seus apps",
+    action: /*#__PURE__*/React.createElement(Btn, {
+      onClick: () => setAddOpen(true)
+    }, "\uFF0B Adicionar")
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      marginBottom: 20,
+      flexWrap: "wrap"
+    }
+  }, statsRow.map(s => /*#__PURE__*/React.createElement(StatCard, _extends({
+    key: s.label
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(Table, {
+    rows: domains,
+    cols: [{
+      label: "Domínio",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "monospace",
+          fontWeight: 600,
+          color: T.txtPri
+        }
+      }, d.name)
+    }, {
+      label: "Status",
+      render: d => /*#__PURE__*/React.createElement(Chip, {
+        cfg: STATUS_CFG[d.status]
+      })
+    }, {
+      label: "SSL",
+      render: d => d.ssl ? /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: T.emerald,
+          fontSize: 12
+        }
+      }, "\uD83D\uDD12 Ativo") : /*#__PURE__*/React.createElement("span", {
+        style: {
+          color: T.rose,
+          fontSize: 12
+        }
+      }, "\uD83D\uDD13 Sem SSL")
+    }, {
+      label: "Exp. SSL",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "monospace",
+          fontSize: 11,
+          color: T.txtSec
+        }
+      }, d.sslExp ?? "—")
+    }, {
+      label: "Apps",
+      render: d => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontFamily: "monospace",
+          fontSize: 12,
+          color: T.txtSec
+        }
+      }, d.apps)
+    }, {
+      label: "Ações",
+      right: true,
+      render: d => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          gap: 6,
+          justifyContent: "flex-end"
+        }
+      }, d.status === "pending" && /*#__PURE__*/React.createElement(Btn, {
+        variant: "outline",
+        onClick: () => verify(d.id)
+      }, "\u2705 Verificar"), /*#__PURE__*/React.createElement(Btn, {
+        variant: "danger",
+        onClick: () => setDeleteId(d.id)
+      }, "\uD83D\uDDD1"))
+    }]
+  })), /*#__PURE__*/React.createElement(Modal, {
+    open: addOpen,
+    onClose: () => setAddOpen(false),
+    title: "\uFF0B Adicionar Dom\xEDnio",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setAddOpen(false)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      onClick: addDomain
+    }, "Adicionar"))
+  }, /*#__PURE__*/React.createElement(Input, {
+    label: "Nome do dom\xEDnio",
+    value: newDomain,
+    onChange: setNewDomain,
+    placeholder: "empresa.com.br",
+    mono: true
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: T.txtSec,
+      lineHeight: 1.6
+    }
+  }, "O dom\xEDnio ser\xE1 adicionado com status ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: T.amber
+    }
+  }, "Pendente"), " at\xE9 ser verificado.")), /*#__PURE__*/React.createElement(Modal, {
+    open: !!deleteId,
+    onClose: () => setDeleteId(null),
+    title: "\u26A0\uFE0F Remover Dom\xEDnio",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setDeleteId(null)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: remove
+    }, "Remover"))
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "O dom\xEDnio ser\xE1 removido permanentemente. Apps vinculados podem ser afetados.")));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: INTEGRATIONS
+// ═══════════════════════════════════════════════════════════════════════════
+function IntegrationsPage() {
+  const [integrations, setIntegrations] = useState(INTEGRATIONS);
+  const [testResult, setTestResult] = useState({});
+  const [disconnectId, setDisconnectId] = useState(null);
+  const test = id => {
+    setTestResult(p => ({
+      ...p,
+      [id]: "testing"
+    }));
+    setTimeout(() => setTestResult(p => ({
+      ...p,
+      [id]: "ok"
+    })), 1200);
+  };
+  const disconnect = () => {
+    setIntegrations(prev => prev.map(i => i.id === disconnectId ? {
+      ...i,
+      status: "disconnected"
+    } : i));
+    setDisconnectId(null);
+  };
+  const fmtDate = iso => iso ? new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }) : "—";
+  const statsRow = [{
+    label: "Total",
+    value: integrations.length,
+    icon: "🔌",
+    color: T.violet
+  }, {
+    label: "Conectadas",
+    value: integrations.filter(i => i.status === "connected").length,
+    icon: "✅",
+    color: T.emerald
+  }, {
+    label: "Com problema",
+    value: integrations.filter(i => i.status !== "connected").length,
+    icon: "⚠️",
+    color: T.rose
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: "Integra\xE7\xF5es",
+    subtitle: "Ferramentas externas conectadas ao painel"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      marginBottom: 20,
+      flexWrap: "wrap"
+    }
+  }, statsRow.map(s => /*#__PURE__*/React.createElement(StatCard, _extends({
+    key: s.label
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))",
+      gap: 14
+    }
+  }, integrations.map(item => /*#__PURE__*/React.createElement("div", {
+    key: item.id,
+    style: card
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 36,
+      height: 36,
+      borderRadius: 9,
+      background: T.surface2,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 18
+    }
+  }, INT_EMOJI[item.type] ?? "🔗"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontWeight: 700,
+      fontSize: 13,
+      color: T.txtPri
+    }
+  }, item.name), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      fontFamily: "monospace",
+      color: T.txtSec,
+      textTransform: "uppercase"
+    }
+  }, item.type))), /*#__PURE__*/React.createElement(Chip, {
+    cfg: STATUS_CFG[item.status]
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 11,
+      color: T.txtSec,
+      fontFamily: "monospace",
+      marginBottom: 14
+    }
+  }, "Sync: ", fmtDate(item.lastSync)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, item.status !== "disconnected" && /*#__PURE__*/React.createElement(Btn, {
+    variant: "outline",
+    size: "sm",
+    onClick: () => test(item.id)
+  }, testResult[item.id] === "testing" ? "⏳ Testando…" : testResult[item.id] === "ok" ? "✅ OK!" : "▶ Testar"), item.status === "connected" && /*#__PURE__*/React.createElement(Btn, {
+    variant: "danger",
+    size: "sm",
+    onClick: () => setDisconnectId(item.id)
+  }, "Desconectar"))))), /*#__PURE__*/React.createElement(Modal, {
+    open: !!disconnectId,
+    onClose: () => setDisconnectId(null),
+    title: "Desconectar Integra\xE7\xE3o",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setDisconnectId(null)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: disconnect
+    }, "Desconectar"))
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "A integra\xE7\xE3o ser\xE1 desconectada. Voc\xEA pode reconect\xE1-la depois.")));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: TEAM
+// ═══════════════════════════════════════════════════════════════════════════
+function TeamPage() {
+  const [members, setMembers] = useState(TEAM);
+  const [deactivateId, setDeactivateId] = useState(null);
+  const ME_ID = "1";
+  const updateRole = (id, role) => setMembers(prev => prev.map(m => m.id === id ? {
+    ...m,
+    role
+  } : m));
+  const deactivate = () => {
+    setMembers(prev => prev.map(m => m.id === deactivateId ? {
+      ...m,
+      active: false
+    } : m));
+    setDeactivateId(null);
+  };
+  const fmtLogin = iso => iso ? new Date(iso).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit"
+  }) : "Nunca";
+  const initials = name => name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  const statsRow = [{
+    label: "Total",
+    value: members.length,
+    icon: "👥",
+    color: T.orange
+  }, {
+    label: "Ativos",
+    value: members.filter(m => m.active).length,
+    icon: "✅",
+    color: T.emerald
+  }, {
+    label: "Inativos",
+    value: members.filter(m => !m.active).length,
+    icon: "🚫",
+    color: T.rose
+  }];
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(PageHeader, {
+    title: "Equipe",
+    subtitle: "Gerencie membros, pap\xE9is e acessos"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 12,
+      marginBottom: 20,
+      flexWrap: "wrap"
+    }
+  }, statsRow.map(s => /*#__PURE__*/React.createElement(StatCard, _extends({
+    key: s.label
+  }, s)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...card,
+      padding: 0,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(Table, {
+    rows: members,
+    cols: [{
+      label: "Membro",
+      render: m => /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          opacity: m.active ? 1 : 0.5
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          width: 30,
+          height: 30,
+          borderRadius: "50%",
+          flexShrink: 0,
+          background: (ROLE_CFG[m.role]?.color ?? T.amber) + "25",
+          color: ROLE_CFG[m.role]?.color ?? T.amber,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 800,
+          fontSize: 11
+        }
+      }, initials(m.name)), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontWeight: 600,
+          color: T.txtPri,
+          fontSize: 13
+        }
+      }, m.name), m.id === ME_ID && /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 9,
+          fontFamily: "monospace",
+          background: T.amber + "20",
+          color: T.amber,
+          padding: "1px 5px",
+          borderRadius: 3
+        }
+      }, "Voc\xEA")), /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 11,
+          fontFamily: "monospace",
+          color: T.txtSec
+        }
+      }, m.email)))
+    }, {
+      label: "Role",
+      render: m => m.id !== ME_ID ? /*#__PURE__*/React.createElement("select", {
+        value: m.role,
+        onChange: e => updateRole(m.id, e.target.value),
+        style: {
+          background: T.surface2,
+          border: `1px solid ${T.border}`,
+          borderRadius: 5,
+          padding: "4px 8px",
+          color: ROLE_CFG[m.role]?.color ?? T.txtSec,
+          fontSize: 11,
+          fontFamily: "monospace",
+          cursor: "pointer"
+        }
+      }, /*#__PURE__*/React.createElement("option", {
+        value: "admin"
+      }, "admin"), /*#__PURE__*/React.createElement("option", {
+        value: "editor"
+      }, "editor"), /*#__PURE__*/React.createElement("option", {
+        value: "viewer"
+      }, "viewer")) : /*#__PURE__*/React.createElement(Chip, {
+        cfg: ROLE_CFG[m.role]
+      })
+    }, {
+      label: "Provedor",
+      render: m => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          fontFamily: "monospace",
+          color: T.txtSec,
+          textTransform: "capitalize"
+        }
+      }, m.provider)
+    }, {
+      label: "Status",
+      render: m => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          fontFamily: "monospace",
+          color: m.active ? T.emerald : T.rose
+        }
+      }, m.active ? "● Ativo" : "○ Inativo")
+    }, {
+      label: "Último login",
+      render: m => /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 11,
+          fontFamily: "monospace",
+          color: T.txtSec
+        }
+      }, fmtLogin(m.lastLogin))
+    }, {
+      label: "Ações",
+      right: true,
+      render: m => m.id !== ME_ID && m.active ? /*#__PURE__*/React.createElement(Btn, {
+        variant: "danger",
+        size: "sm",
+        onClick: () => setDeactivateId(m.id)
+      }, "\uD83D\uDEAB Desativar") : null
+    }]
+  })), /*#__PURE__*/React.createElement(Modal, {
+    open: !!deactivateId,
+    onClose: () => setDeactivateId(null),
+    title: "Desativar Membro",
+    footer: /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
+      variant: "outline",
+      onClick: () => setDeactivateId(null)
+    }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "danger",
+      onClick: deactivate
+    }, "Desativar"))
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      color: T.txtSec,
+      fontSize: 13
+    }
+  }, "O membro perder\xE1 acesso ao painel. A conta pode ser reativada posteriormente.")));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PAGE: LOGIN — Firebase Auth (GitHub, Google, E-mail/senha)
+// ═══════════════════════════════════════════════════════════════════════════
+function LoginPage() {
+  const [tab,      setTab]      = useState("social");  // "social" | "email"
+  const [email,    setEmail]    = useState("");
+  const [pass,     setPass]     = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [authError,setAuthError]= useState(null);
+
+  // Erro formatado vindo do Firebase
+  const fmtError = (err) => {
+    const msg = {
+      "auth/popup-closed-by-user":     "Login cancelado. Tente novamente.",
+      "auth/popup-blocked":            "Popup bloqueado pelo navegador. Permita popups para este site.",
+      "auth/account-exists-with-different-credential":
+                                       "Este e-mail já está vinculado a outro provedor.",
+      "auth/invalid-email":            "E-mail inválido.",
+      "auth/wrong-password":           "Senha incorreta.",
+      "auth/user-not-found":           "Usuário não encontrado.",
+      "auth/too-many-requests":        "Muitas tentativas. Tente novamente mais tarde.",
+      "auth/network-request-failed":   "Erro de rede. Verifique sua conexão.",
+    };
+    return msg[err.code] ?? err.message ?? "Erro desconhecido.";
+  };
+
+  // ── Login com popup (GitHub ou Google) ────────────────────────────────────
+  const handlePopup = async (provider) => {
+    setLoading(true);
+    setAuthError(null);
+    try {
+      await firebase.auth.signInWithPopup(firebaseAuth, provider);
+      // onAuthStateChanged no AdminPanel root detecta o login automaticamente
+    } catch (err) {
+      setAuthError(fmtError(err));
+      setLoading(false);
+    }
+  };
+
+  // ── Login com e-mail e senha ───────────────────────────────────────────────
+  const handleEmail = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !pass.trim()) return;
+    setLoading(true);
+    setAuthError(null);
+    try {
+      await firebase.auth.signInWithEmailAndPassword(firebaseAuth, email, pass);
+    } catch (err) {
+      setAuthError(fmtError(err));
+      setLoading(false);
+    }
+  };
+
+  const btnStyle = (disabled) => ({
+    width: "100%", padding: "11px 16px", borderRadius: 8,
+    background: T.surface2, border: `1px solid ${T.border}`,
+    color: disabled ? T.txtSec : T.txtPri,
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 13, fontFamily: "inherit", fontWeight: 600,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    gap: 10, transition: "border-color .15s", opacity: disabled ? 0.6 : 1,
+    marginBottom: 10,
+  });
+
+  // SVG do GitHub
+  const githubSvg = /*#__PURE__*/React.createElement("svg", {
+    width: 18, height: 18, viewBox: "0 0 24 24", fill: T.txtPri, flexShrink: 0
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"
+  }));
+
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      minHeight: "100vh", background: T.bg,
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+      backgroundImage: `radial-gradient(ellipse 60% 50% at 50% 0%, ${T.amber}0F, transparent)`,
+      fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif",
+    }
+  },
+  /*#__PURE__*/React.createElement("div", { style: { width: "100%", maxWidth: 380 } },
+
+    // Logo
+    /*#__PURE__*/React.createElement("div", { style: { textAlign: "center", marginBottom: 32 } },
+      /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "inline-flex", width: 52, height: 52, borderRadius: 14, marginBottom: 16,
+          background: `linear-gradient(135deg,${T.amber},${T.amberDim})`,
+          alignItems: "center", justifyContent: "center",
+          fontSize: 24, fontWeight: 900, fontFamily: "monospace", color: "#000",
+        }
+      }, "A"),
+      /*#__PURE__*/React.createElement("div", {
+        style: { fontSize: 26, fontWeight: 800, color: T.txtPri, letterSpacing: "-0.02em" }
+      }, "AdminOS"),
+      /*#__PURE__*/React.createElement("div", {
+        style: { fontSize: 13, color: T.txtSec, marginTop: 4 }
+      }, "Acesse o painel de controle")
+    ),
+
+    // Card
+    /*#__PURE__*/React.createElement("div", { style: card },
+
+      // Abas Social / E-mail
+      /*#__PURE__*/React.createElement("div", {
+        style: {
+          display: "flex", borderBottom: `1px solid ${T.border}`, marginBottom: 20
+        }
+      },
+        ["social", "email"].map(t =>
+          /*#__PURE__*/React.createElement("button", {
+            key: t,
+            onClick: () => { setTab(t); setAuthError(null); },
+            style: {
+              flex: 1, padding: "8px 0", border: "none", cursor: "pointer",
+              background: "transparent", fontFamily: "inherit",
+              fontSize: 12, fontWeight: 600,
+              color:        tab === t ? T.amber   : T.txtSec,
+              borderBottom: tab === t ? `2px solid ${T.amber}` : "2px solid transparent",
+              marginBottom: -1, transition: "all .15s",
+            }
+          }, t === "social" ? "🔗 Redes sociais" : "✉️ E-mail e senha")
+        )
+      ),
+
+      // Aba Social
+      tab === "social" && [
+        /*#__PURE__*/React.createElement("button", {
+          key: "github",
+          onClick: () => handlePopup(githubProvider),
+          disabled: loading,
+          style: btnStyle(loading),
+          onMouseEnter: e => { if (!loading) e.currentTarget.style.borderColor = T.amber; },
+          onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; },
+        }, githubSvg, "Entrar com GitHub"),
+
+        /*#__PURE__*/React.createElement("button", {
+          key: "google",
+          onClick: () => handlePopup(googleProvider),
+          disabled: loading,
+          style: { ...btnStyle(loading), marginBottom: 0 },
+          onMouseEnter: e => { if (!loading) e.currentTarget.style.borderColor = T.sky; },
+          onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; },
+        }, "🔵 Entrar com Google"),
+      ],
+
+      // Aba E-mail
+      tab === "email" && /*#__PURE__*/React.createElement("form", {
+        key: "emailform",
+        onSubmit: handleEmail,
+      },
+        /*#__PURE__*/React.createElement(Input, {
+          label: "E-mail", value: email,
+          onChange: setEmail, type: "email",
+          placeholder: "seu@email.com",
+        }),
+        /*#__PURE__*/React.createElement(Input, {
+          label: "Senha", value: pass,
+          onChange: setPass, type: "password",
+          placeholder: "••••••••",
+        }),
+        /*#__PURE__*/React.createElement("button", {
+          type: "submit",
+          disabled: loading || !email || !pass,
+          style: {
+            width: "100%", padding: "11px 16px", borderRadius: 8, border: "none",
+            background: `linear-gradient(135deg,${T.amber},${T.amberDim})`,
+            color: "#000", fontWeight: 700, fontSize: 14,
+            cursor: loading ? "not-allowed" : "pointer",
+            fontFamily: "inherit", opacity: loading ? 0.7 : 1,
+          }
+        }, loading ? "Entrando…" : "Entrar")
+      ),
+
+      // Erro
+      authError && /*#__PURE__*/React.createElement("div", {
+        style: {
+          marginTop: 14, padding: "10px 14px", borderRadius: 7,
+          background: T.rose + "12", border: `1px solid ${T.rose}40`,
+          fontSize: 12, color: T.rose, fontFamily: "monospace",
+        }
+      }, "⚠ ", authError)
+    ),
+
+    // Rodapé
+    /*#__PURE__*/React.createElement("div", {
+      style: { textAlign: "center", marginTop: 16, fontSize: 11, fontFamily: "monospace", color: T.txtSec }
+    }, "Painel administrativo — acesso restrito")
+  ));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ROOT — Firebase onAuthStateChanged como fonte de verdade de sessão
+// ═══════════════════════════════════════════════════════════════════════════
+function AdminPanel() {
+  const [user,    setUser]    = useState(null);
+  const [page,    setPage]    = useState("dashboard");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    /**
+     * onAuthStateChanged é chamado:
+     *  - imediatamente ao montar (com o usuário atual ou null)
+     *  - a cada login ou logout
+     * Isso elimina localStorage, decodeJwt e qualquer polling manual.
+     */
+    const unsubscribe = firebase.auth.onAuthStateChanged(firebaseAuth, (firebaseUser) => {
+      if (firebaseUser) {
+        // Mapeia o objeto Firebase User para o formato usado no painel
+        setUser({
+          uid:           firebaseUser.uid,
+          name:          firebaseUser.displayName,
+          email:         firebaseUser.email,
+          photoURL:      firebaseUser.photoURL,
+          githubUsername: firebaseUser.providerData
+            .find(p => p.providerId === 'github.com')?.uid ?? null,
+        });
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+
+    // Cancela o listener ao desmontar o componente
+    return () => unsubscribe();
+  }, []);
+
+  const logout = async () => {
+    await firebase.auth.signOut(firebaseAuth);
+    // onAuthStateChanged seta user=null automaticamente
+    setPage("dashboard");
+  };
+
+  if (loading) {
+    return /*#__PURE__*/React.createElement("div", {
+      style: {
+        minHeight: "100vh", background: T.bg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif",
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 13, color: T.txtSec, fontFamily: "monospace" }
+    }, "Verificando sessão…"));
+  }
+
+  if (!user) return /*#__PURE__*/React.createElement(LoginPage, null);
+
+  const PAGE_MAP = {
+    dashboard:    /*#__PURE__*/React.createElement(DashboardPage, null),
+    apps:         /*#__PURE__*/React.createElement(AppsPage, null),
+    domains:      /*#__PURE__*/React.createElement(DomainsPage, null),
+    integrations: /*#__PURE__*/React.createElement(IntegrationsPage, null),
+    team:         /*#__PURE__*/React.createElement(TeamPage, null),
+  };
+
+  return /*#__PURE__*/React.createElement(NavCtx.Provider, {
+    value: { page, go: setPage, user, logout }
+  },
+  /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex", minHeight: "100vh", background: T.bg,
+      fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif", color: T.txtPri,
+    }
+  },
+    /*#__PURE__*/React.createElement(Sidebar, null),
+    /*#__PURE__*/React.createElement("main", {
+      style: {
+        flex: 1, marginLeft: 216, padding: "28px 32px",
+        maxWidth: 1280, overflowX: "hidden", minHeight: "100vh",
+      }
+    }, PAGE_MAP[page] ?? /*#__PURE__*/React.createElement(DashboardPage, null))
+  ));
+}
+
+// ── Monta o app no DOM ────────────────────────────────────────────────────
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(/*#__PURE__*/React.createElement(AdminPanel, null));
+  </script>
+</body>
+</html>
