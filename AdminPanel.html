@@ -3581,72 +3581,85 @@ function TeamPage() {
 // PAGE: LOGIN — Firebase Auth (GitHub, Google, E-mail/senha)
 // ═══════════════════════════════════════════════════════════════════════════
 function LoginPage() {
-  const [tab,      setTab]      = useState("social");  // "social" | "email"
-  const [email,    setEmail]    = useState("");
-  const [pass,     setPass]     = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [authError,setAuthError]= useState(null);
+  const [email,      setEmail]      = useState("");
+  const [pass,       setPass]       = useState("");
+  const [showPass,   setShowPass]   = useState(false);
+  const [loadingGH,  setLoadingGH]  = useState(false);  // loading por provedor
+  const [loadingGO,  setLoadingGO]  = useState(false);
+  const [loadingEM,  setLoadingEM]  = useState(false);
+  const [authError,  setAuthError]  = useState(null);
 
-  // Erro formatado vindo do Firebase
-  const fmtError = (err) => {
-    const msg = {
-      "auth/popup-closed-by-user":     "Login cancelado. Tente novamente.",
-      "auth/popup-blocked":            "Popup bloqueado pelo navegador. Permita popups para este site.",
-      "auth/account-exists-with-different-credential":
-                                       "Este e-mail já está vinculado a outro provedor.",
-      "auth/invalid-email":            "E-mail inválido.",
-      "auth/wrong-password":           "Senha incorreta.",
-      "auth/user-not-found":           "Usuário não encontrado.",
-      "auth/too-many-requests":        "Muitas tentativas. Tente novamente mais tarde.",
-      "auth/network-request-failed":   "Erro de rede. Verifique sua conexão.",
-    };
-    return msg[err.code] ?? err.message ?? "Erro desconhecido.";
-  };
+  // Mapa de erros Firebase → mensagem em português
+  const fmtError = (err) => ({
+    "auth/popup-closed-by-user":                    "Login cancelado. Tente novamente.",
+    "auth/popup-blocked":                           "Popup bloqueado. Permita popups para este site.",
+    "auth/account-exists-with-different-credential":"Este e-mail já está vinculado a outro provedor.",
+    "auth/invalid-email":                           "E-mail inválido.",
+    "auth/wrong-password":                          "Senha incorreta.",
+    "auth/invalid-credential":                      "E-mail ou senha incorretos.",
+    "auth/user-not-found":                          "Usuário não encontrado.",
+    "auth/user-disabled":                           "Esta conta foi desativada.",
+    "auth/too-many-requests":                       "Muitas tentativas. Tente mais tarde.",
+    "auth/network-request-failed":                  "Erro de rede. Verifique sua conexão.",
+  }[err.code] ?? err.message ?? "Erro desconhecido.";
 
-  // ── Login com popup (GitHub ou Google) ────────────────────────────────────
-  const handlePopup = async (provider) => {
+  // Login via popup (GitHub ou Google)
+  const handlePopup = async (provider, setLoading) => {
     setLoading(true);
     setAuthError(null);
     try {
       await firebase.auth.signInWithPopup(firebaseAuth, provider);
-      // onAuthStateChanged no AdminPanel root detecta o login automaticamente
+      // onAuthStateChanged no root detecta e redireciona automaticamente
     } catch (err) {
       setAuthError(fmtError(err));
       setLoading(false);
     }
   };
 
-  // ── Login com e-mail e senha ───────────────────────────────────────────────
+  // Login com e-mail e senha
   const handleEmail = async (e) => {
     e.preventDefault();
     if (!email.trim() || !pass.trim()) return;
-    setLoading(true);
+    setLoadingEM(true);
     setAuthError(null);
     try {
-      await firebase.auth.signInWithEmailAndPassword(firebaseAuth, email, pass);
+      await firebase.auth.signInWithEmailAndPassword(firebaseAuth, email.trim(), pass);
     } catch (err) {
       setAuthError(fmtError(err));
-      setLoading(false);
+      setLoadingEM(false);
     }
   };
 
-  const btnStyle = (disabled) => ({
+  // Estilo base dos botões sociais
+  const socialBtn = (accent, loading) => ({
     width: "100%", padding: "11px 16px", borderRadius: 8,
-    background: T.surface2, border: `1px solid ${T.border}`,
-    color: disabled ? T.txtSec : T.txtPri,
-    cursor: disabled ? "not-allowed" : "pointer",
+    background: T.surface2, border: `1px solid ${loading ? T.border : T.border}`,
+    color: loading ? T.txtSec : T.txtPri,
+    cursor: loading ? "not-allowed" : "pointer",
     fontSize: 13, fontFamily: "inherit", fontWeight: 600,
     display: "flex", alignItems: "center", justifyContent: "center",
-    gap: 10, transition: "border-color .15s", opacity: disabled ? 0.6 : 1,
-    marginBottom: 10,
+    gap: 10, transition: "border-color .15s, background .15s",
+    opacity: loading ? 0.6 : 1,
   });
 
-  // SVG do GitHub
-  const githubSvg = /*#__PURE__*/React.createElement("svg", {
-    width: 18, height: 18, viewBox: "0 0 24 24", fill: T.txtPri, flexShrink: 0
+  // SVG GitHub
+  const GitHubIcon = /*#__PURE__*/React.createElement("svg", {
+    width: 18, height: 18, viewBox: "0 0 24 24", fill: "currentColor", flexShrink: 0,
   }, /*#__PURE__*/React.createElement("path", {
-    d: "M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"
+    d: "M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z",
   }));
+
+  // SVG Google (cores oficiais)
+  const GoogleIcon = /*#__PURE__*/React.createElement("svg", {
+    width: 18, height: 18, viewBox: "0 0 24 24", flexShrink: 0,
+  },
+    /*#__PURE__*/React.createElement("path", { fill: "#4285F4", d: "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" }),
+    /*#__PURE__*/React.createElement("path", { fill: "#34A853", d: "M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" }),
+    /*#__PURE__*/React.createElement("path", { fill: "#FBBC05", d: "M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" }),
+    /*#__PURE__*/React.createElement("path", { fill: "#EA4335", d: "M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" })
+  );
+
+  const anyLoading = loadingGH || loadingGO || loadingEM;
 
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3658,7 +3671,7 @@ function LoginPage() {
   },
   /*#__PURE__*/React.createElement("div", { style: { width: "100%", maxWidth: 380 } },
 
-    // Logo
+    // ── Logo ─────────────────────────────────────────────────────────────────
     /*#__PURE__*/React.createElement("div", { style: { textAlign: "center", marginBottom: 32 } },
       /*#__PURE__*/React.createElement("div", {
         style: {
@@ -3676,93 +3689,145 @@ function LoginPage() {
       }, "Acesse o painel de controle")
     ),
 
-    // Card
-    /*#__PURE__*/React.createElement("div", { style: card },
+    // ── Card ─────────────────────────────────────────────────────────────────
+    /*#__PURE__*/React.createElement("div", { style: { ...card, padding: 24 } },
 
-      // Abas Social / E-mail
-      /*#__PURE__*/React.createElement("div", {
-        style: {
-          display: "flex", borderBottom: `1px solid ${T.border}`, marginBottom: 20
-        }
+      // Botão GitHub
+      /*#__PURE__*/React.createElement("button", {
+        onClick: () => handlePopup(githubProvider, setLoadingGH),
+        disabled: anyLoading,
+        style: { ...socialBtn(T.txtPri, loadingGH), marginBottom: 10 },
+        onMouseEnter: e => { if (!anyLoading) { e.currentTarget.style.borderColor = T.amber; e.currentTarget.style.background = T.amber + "0E"; } },
+        onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface2; },
       },
-        ["social", "email"].map(t =>
-          /*#__PURE__*/React.createElement("button", {
-            key: t,
-            onClick: () => { setTab(t); setAuthError(null); },
-            style: {
-              flex: 1, padding: "8px 0", border: "none", cursor: "pointer",
-              background: "transparent", fontFamily: "inherit",
-              fontSize: 12, fontWeight: 600,
-              color:        tab === t ? T.amber   : T.txtSec,
-              borderBottom: tab === t ? `2px solid ${T.amber}` : "2px solid transparent",
-              marginBottom: -1, transition: "all .15s",
-            }
-          }, t === "social" ? "🔗 Redes sociais" : "✉️ E-mail e senha")
-        )
+        loadingGH
+          ? /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, color: T.txtSec } }, "⏳ Conectando ao GitHub…")
+          : [GitHubIcon, /*#__PURE__*/React.createElement("span", { key: "l" }, "Continuar com GitHub")]
       ),
 
-      // Aba Social
-      tab === "social" && [
-        /*#__PURE__*/React.createElement("button", {
-          key: "github",
-          onClick: () => handlePopup(githubProvider),
-          disabled: loading,
-          style: btnStyle(loading),
-          onMouseEnter: e => { if (!loading) e.currentTarget.style.borderColor = T.amber; },
-          onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; },
-        }, githubSvg, "Entrar com GitHub"),
-
-        /*#__PURE__*/React.createElement("button", {
-          key: "google",
-          onClick: () => handlePopup(googleProvider),
-          disabled: loading,
-          style: { ...btnStyle(loading), marginBottom: 0 },
-          onMouseEnter: e => { if (!loading) e.currentTarget.style.borderColor = T.sky; },
-          onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; },
-        }, "🔵 Entrar com Google"),
-      ],
-
-      // Aba E-mail
-      tab === "email" && /*#__PURE__*/React.createElement("form", {
-        key: "emailform",
-        onSubmit: handleEmail,
+      // Botão Google
+      /*#__PURE__*/React.createElement("button", {
+        onClick: () => handlePopup(googleProvider, setLoadingGO),
+        disabled: anyLoading,
+        style: { ...socialBtn(T.sky, loadingGO), marginBottom: 0 },
+        onMouseEnter: e => { if (!anyLoading) { e.currentTarget.style.borderColor = "#4285F4"; e.currentTarget.style.background = "#4285F408"; } },
+        onMouseLeave: e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = T.surface2; },
       },
-        /*#__PURE__*/React.createElement(Input, {
-          label: "E-mail", value: email,
-          onChange: setEmail, type: "email",
-          placeholder: "seu@email.com",
-        }),
-        /*#__PURE__*/React.createElement(Input, {
-          label: "Senha", value: pass,
-          onChange: setPass, type: "password",
-          placeholder: "••••••••",
-        }),
+        loadingGO
+          ? /*#__PURE__*/React.createElement("span", { style: { fontSize: 13, color: T.txtSec } }, "⏳ Conectando ao Google…")
+          : [GoogleIcon, /*#__PURE__*/React.createElement("span", { key: "l" }, "Continuar com Google")]
+      ),
+
+      // Divisor
+      /*#__PURE__*/React.createElement("div", {
+        style: { display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }
+      },
+        /*#__PURE__*/React.createElement("div", { style: { flex: 1, height: 1, background: T.border } }),
+        /*#__PURE__*/React.createElement("span", {
+          style: { fontSize: 11, color: T.txtSec, fontFamily: "monospace", whiteSpace: "nowrap" }
+        }, "ou entre com e-mail"),
+        /*#__PURE__*/React.createElement("div", { style: { flex: 1, height: 1, background: T.border } })
+      ),
+
+      // Formulário e-mail + senha
+      /*#__PURE__*/React.createElement("form", { onSubmit: handleEmail },
+
+        // Campo e-mail
+        /*#__PURE__*/React.createElement("div", { style: { marginBottom: 12 } },
+          /*#__PURE__*/React.createElement("label", {
+            style: {
+              display: "block", fontSize: 11, fontFamily: "monospace",
+              letterSpacing: "0.08em", textTransform: "uppercase",
+              color: T.txtSec, marginBottom: 5,
+            }
+          }, "E-mail"),
+          /*#__PURE__*/React.createElement("input", {
+            type: "email", value: email,
+            onChange: e => setEmail(e.target.value),
+            placeholder: "seu@email.com",
+            disabled: anyLoading,
+            style: {
+              width: "100%", background: T.surface2, border: `1px solid ${T.border}`,
+              borderRadius: 7, padding: "10px 12px", color: T.txtPri, fontSize: 13,
+              fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+              opacity: anyLoading ? 0.6 : 1,
+            },
+            onFocus: e => e.target.style.borderColor = T.amber,
+            onBlur:  e => e.target.style.borderColor = T.border,
+          })
+        ),
+
+        // Campo senha com toggle visibilidade
+        /*#__PURE__*/React.createElement("div", { style: { marginBottom: 16 } },
+          /*#__PURE__*/React.createElement("label", {
+            style: {
+              display: "block", fontSize: 11, fontFamily: "monospace",
+              letterSpacing: "0.08em", textTransform: "uppercase",
+              color: T.txtSec, marginBottom: 5,
+            }
+          }, "Senha"),
+          /*#__PURE__*/React.createElement("div", { style: { position: "relative" } },
+            /*#__PURE__*/React.createElement("input", {
+              type: showPass ? "text" : "password",
+              value: pass,
+              onChange: e => setPass(e.target.value),
+              placeholder: "••••••••",
+              disabled: anyLoading,
+              style: {
+                width: "100%", background: T.surface2, border: `1px solid ${T.border}`,
+                borderRadius: 7, padding: "10px 40px 10px 12px", color: T.txtPri,
+                fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+                opacity: anyLoading ? 0.6 : 1,
+              },
+              onFocus: e => e.target.style.borderColor = T.amber,
+              onBlur:  e => e.target.style.borderColor = T.border,
+            }),
+            // Botão mostrar/ocultar senha
+            /*#__PURE__*/React.createElement("button", {
+              type: "button",
+              onClick: () => setShowPass(s => !s),
+              style: {
+                position: "absolute", right: 10, top: "50%",
+                transform: "translateY(-50%)",
+                background: "none", border: "none", cursor: "pointer",
+                color: T.txtSec, fontSize: 14, lineHeight: 1, padding: 2,
+              },
+              title: showPass ? "Ocultar senha" : "Mostrar senha",
+            }, showPass ? "🙈" : "👁")
+          )
+        ),
+
+        // Botão entrar
         /*#__PURE__*/React.createElement("button", {
           type: "submit",
-          disabled: loading || !email || !pass,
+          disabled: anyLoading || !email.trim() || !pass.trim(),
           style: {
             width: "100%", padding: "11px 16px", borderRadius: 8, border: "none",
             background: `linear-gradient(135deg,${T.amber},${T.amberDim})`,
-            color: "#000", fontWeight: 700, fontSize: 14,
-            cursor: loading ? "not-allowed" : "pointer",
-            fontFamily: "inherit", opacity: loading ? 0.7 : 1,
-          }
-        }, loading ? "Entrando…" : "Entrar")
+            color: "#000", fontWeight: 700, fontSize: 14, fontFamily: "inherit",
+            cursor: anyLoading || !email.trim() || !pass.trim() ? "not-allowed" : "pointer",
+            opacity: anyLoading || !email.trim() || !pass.trim() ? 0.6 : 1,
+            transition: "opacity .15s",
+          },
+        }, loadingEM ? "⏳ Entrando…" : "Entrar")
       ),
 
-      // Erro
+      // Bloco de erro
       authError && /*#__PURE__*/React.createElement("div", {
         style: {
-          marginTop: 14, padding: "10px 14px", borderRadius: 7,
+          marginTop: 16, padding: "10px 14px", borderRadius: 7,
           background: T.rose + "12", border: `1px solid ${T.rose}40`,
-          fontSize: 12, color: T.rose, fontFamily: "monospace",
+          fontSize: 12, color: T.rose, fontFamily: "monospace", lineHeight: 1.5,
         }
       }, "⚠ ", authError)
     ),
 
     // Rodapé
     /*#__PURE__*/React.createElement("div", {
-      style: { textAlign: "center", marginTop: 16, fontSize: 11, fontFamily: "monospace", color: T.txtSec }
+      style: {
+        textAlign: "center", marginTop: 16,
+        fontSize: 11, fontFamily: "monospace", color: T.txtSec,
+      }
     }, "Painel administrativo — acesso restrito")
   ));
 }
